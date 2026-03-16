@@ -318,9 +318,25 @@ void led_pwm_disable(uint8_t led) {
     LOW(gpio);                          // LED off (set pin LOW)
 }
 
-void led_effect_pulse(uint8_t led, uint16_t speed_ms, uint16_t count) {
-    if (led_pwm_channel(led) == NULL) return;
+// Helper: set brightness on all PWM-capable LEDs in a bitmask
+static void led_set_pwm_brightness_mask(uint8_t led_mask, uint8_t brightness) {
+    uint8_t leds[] = {LED_A, LED_B, LED_C, LED_D};
+    for (uint8_t i = 0; i < 4; i++) {
+        if (led_mask & leds[i])
+            led_set_pwm_brightness(leds[i], brightness);
+    }
+}
 
+// Helper: disable PWM on all LEDs in a bitmask
+static void led_pwm_disable_mask(uint8_t led_mask) {
+    uint8_t leds[] = {LED_A, LED_B, LED_C, LED_D};
+    for (uint8_t i = 0; i < 4; i++) {
+        if (led_mask & leds[i])
+            led_pwm_disable(leds[i]);
+    }
+}
+
+void led_effect_pulse(uint8_t led_mask, uint16_t speed_ms, uint16_t count) {
     led_pwm_init();
     // Each pulse cycle: ramp up 0->100, ramp down 100->0
     // Split speed_ms across 200 steps (100 up + 100 down)
@@ -330,37 +346,35 @@ void led_effect_pulse(uint8_t led, uint16_t speed_ms, uint16_t count) {
     for (uint16_t c = 0; count == 0 || c < count; c++) {
         // Ramp up
         for (uint8_t b = 0; b <= 100; b++) {
-            led_set_pwm_brightness(led, b);
+            led_set_pwm_brightness_mask(led_mask, b);
             SpinDelay(step_delay);
             if (BUTTON_PRESS()) goto pulse_done;
         }
         // Ramp down
         for (int8_t b = 100; b >= 0; b--) {
-            led_set_pwm_brightness(led, (uint8_t)b);
+            led_set_pwm_brightness_mask(led_mask, (uint8_t)b);
             SpinDelay(step_delay);
             if (BUTTON_PRESS()) goto pulse_done;
         }
         WDT_HIT();
     }
 pulse_done:
-    led_pwm_disable(led);
+    led_pwm_disable_mask(led_mask);
 }
 
-void led_effect_fade(uint8_t led, uint16_t speed_ms) {
-    if (led_pwm_channel(led) == NULL) return;
-
+void led_effect_fade(uint8_t led_mask, uint16_t speed_ms) {
     led_pwm_init();
     // Fade from 100 to 0 over speed_ms
     uint16_t step_delay = speed_ms / 100;
     if (step_delay < 1) step_delay = 1;
 
     for (int8_t b = 100; b >= 0; b--) {
-        led_set_pwm_brightness(led, (uint8_t)b);
+        led_set_pwm_brightness_mask(led_mask, (uint8_t)b);
         SpinDelay(step_delay);
         if (BUTTON_PRESS()) break;
         WDT_HIT();
     }
-    led_pwm_disable(led);
+    led_pwm_disable_mask(led_mask);
 }
 
 void led_effect_blink(uint8_t led_mask, uint16_t speed_ms, uint16_t count) {

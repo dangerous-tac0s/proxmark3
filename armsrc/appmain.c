@@ -2653,21 +2653,11 @@ static void PacketReceived(PacketCommandNG *packet) {
                             led_set_pwm_brightness(leds[i], payload->brightness);
                     }
                     break;
-                case 4: // pulse effect (blocking) - use first PWM-capable LED in mask
-                    for (uint8_t i = 0; i < 4; i++) {
-                        if (payload->led & leds[i]) {
-                            led_effect_pulse(leds[i], payload->speed, payload->count);
-                            break;
-                        }
-                    }
+                case 4: // pulse effect (blocking, all PWM LEDs in mask)
+                    led_effect_pulse(payload->led, payload->speed, payload->count);
                     break;
-                case 5: // fade effect (blocking) - use first PWM-capable LED in mask
-                    for (uint8_t i = 0; i < 4; i++) {
-                        if (payload->led & leds[i]) {
-                            led_effect_fade(leds[i], payload->speed);
-                            break;
-                        }
-                    }
+                case 5: // fade effect (blocking, all PWM LEDs in mask)
+                    led_effect_fade(payload->led, payload->speed);
                     break;
                 case 6: // blink effect (blocking)
                     led_effect_blink(payload->led, payload->speed, payload->count);
