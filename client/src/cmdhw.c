@@ -1808,20 +1808,21 @@ static int CmdHWLed(const char *Cmd) {
     CLIParserContext *ctx;
     CLIParserInit(&ctx, "hw led",
                   "Control LEDs on the Proxmark3 device.\n"
+                  "Accepts color names (green, blue, orange, red) or letters (a, b, c, d).\n"
                   "Brightness and PWM effects (pulse, fade) only work on PWM-capable LEDs:\n"
-                  "  PM3 Easy: LED A (Green) and LED B (Blue)\n"
-                  "  RDV4: LED A (Orange) and LED D (Red2)\n"
+                  "  PM3 Easy: green (A) and blue (B)\n"
+                  "  RDV4: orange (A) and red2 (D)\n"
                   "Blink works on all LEDs.",
-                  "hw led --led a --on\n"
-                  "hw led --led b --brightness 50\n"
-                  "hw led --led a --pulse\n"
-                  "hw led --led a,b --blink --count 10\n"
+                  "hw led --led green --on\n"
+                  "hw led --led blue --brightness 50\n"
+                  "hw led --led green --pulse\n"
+                  "hw led --led green,blue --blink --count 10\n"
                   "hw led --led all --off"
                  );
 
     void *argtable[] = {
         arg_param_begin,
-        arg_str1(NULL, "led", "<a|b|c|d|all>", "LED(s) to control"),
+        arg_str1(NULL, "led", "<color|letter|all>", "LED: green/g, blue/b, orange/o, red/r, a-d, all"),
         arg_lit0(NULL, "on", "turn LED on"),
         arg_lit0(NULL, "off", "turn LED off"),
         arg_lit0(NULL, "toggle", "toggle LED state"),
@@ -1835,8 +1836,8 @@ static int CmdHWLed(const char *Cmd) {
     };
     CLIExecWithReturn(ctx, Cmd, argtable, false);
 
-    int led_str_len = 0;
-    char led_str[10] = {0};
+    char led_str[32] = {0};
+    int led_str_len = sizeof(led_str) - 1; // CLIGetStrWithReturn does not guarantee null-termination
     CLIGetStrWithReturn(ctx, 1, (uint8_t *)led_str, &led_str_len);
 
     bool do_on = arg_get_lit(ctx, 2);
@@ -1851,22 +1852,63 @@ static int CmdHWLed(const char *Cmd) {
     CLIParserFree(ctx);
 
     // Parse LED string into bitmask
+    // Accepts: color names (green, blue, orange, red), letters (a, b, c, d), or "all"
+    // Comma-separated for multiple: "green,blue" or "a,b"
+    // Colors map to hardware LEDs which differ by platform:
+    //   PM3 Easy: green=A, blue=B, orange=C, red=D
+    //   RDV4:     orange=A, green=B, red=C, red2=D
     uint8_t led_mask = 0;
-    if (strcasecmp(led_str, "all") == 0) {
-        led_mask = 0x0F;  // LED_A | LED_B | LED_C | LED_D
-    } else {
-        for (int i = 0; i < led_str_len; i++) {
-            switch (tolower((unsigned char)led_str[i])) {
+    bool is_rdv4 = IfPm3Rdv4Fw();
+
+    // Tokenize by comma
+    char led_copy[32];
+    strncpy(led_copy, led_str, sizeof(led_copy) - 1);
+    led_copy[sizeof(led_copy) - 1] = '\0';
+
+    char *token = strtok(led_copy, ",");
+    while (token != NULL) {
+        // Trim leading spaces
+        while (*token == ' ') token++;
+
+        if (strcasecmp(token, "all") == 0) {
+            led_mask = 0x0F;
+        } else if (strcasecmp(token, "green") == 0) {
+            led_mask |= is_rdv4 ? 0x02 : 0x01;
+        } else if (strcasecmp(token, "blue") == 0) {
+            if (is_rdv4) {
+                PrintAndLogEx(ERR, "RDV4 has no blue LED");
+                return PM3_EINVARG;
+            }
+            led_mask |= 0x02;
+        } else if (strcasecmp(token, "orange") == 0) {
+            led_mask |= is_rdv4 ? 0x01 : 0x04;
+        } else if (strcasecmp(token, "red") == 0) {
+            led_mask |= is_rdv4 ? 0x04 : 0x08;
+        } else if (strcasecmp(token, "red2") == 0) {
+            if (!is_rdv4) {
+                PrintAndLogEx(ERR, "PM3 Easy has no red2 LED");
+                return PM3_EINVARG;
+            }
+            led_mask |= 0x08;
+        } else if (strlen(token) == 1) {
+            // Single letter: a-d for LED position, g/o/r for color
+            switch (tolower((unsigned char)token[0])) {
                 case 'a': led_mask |= 0x01; break;
                 case 'b': led_mask |= 0x02; break;
                 case 'c': led_mask |= 0x04; break;
                 case 'd': led_mask |= 0x08; break;
-                case ',': break;
+                case 'g': led_mask |= is_rdv4 ? 0x02 : 0x01; break;  // green
+                case 'o': led_mask |= is_rdv4 ? 0x01 : 0x04; break;  // orange
+                case 'r': led_mask |= is_rdv4 ? 0x04 : 0x08; break;  // red
                 default:
-                    PrintAndLogEx(ERR, "Unknown LED: %c", led_str[i]);
+                    PrintAndLogEx(ERR, "Unknown LED: '%s'", token);
                     return PM3_EINVARG;
             }
+        } else {
+            PrintAndLogEx(ERR, "Unknown LED: '%s'. Use color (green, blue, orange, red) or letter (a, b, c, d)", token);
+            return PM3_EINVARG;
         }
+        token = strtok(NULL, ",");
     }
 
     if (led_mask == 0) {

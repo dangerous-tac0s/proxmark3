@@ -234,7 +234,8 @@ void SpinUp(uint32_t speed) {
 // ---------------------------------------------------------------------------
 // PWM LED brightness control
 // Only LED_A (PA0/PWM0) and LED_B/LED_D (PA2/PWM2) support hardware PWM.
-// LEDs are active-low: duty = period - (brightness * period / 100)
+// AT91 PWM with CPOL=0 outputs LOW during duty portion, so we invert:
+// duty = period - (brightness * period / 100)
 // PWM frequency: MCK / period = 48MHz / 1000 = 48kHz
 // ---------------------------------------------------------------------------
 
@@ -314,7 +315,7 @@ void led_pwm_disable(uint8_t led) {
     // Return pin to GPIO control and turn LED off
     AT91C_BASE_PIOA->PIO_PER = gpio;   // Enable PIO control
     AT91C_BASE_PIOA->PIO_OER = gpio;   // Set as output
-    LOW(gpio);                          // LED off (active-low: LOW = off)
+    LOW(gpio);                          // LED off (set pin LOW)
 }
 
 void led_effect_pulse(uint8_t led, uint16_t speed_ms, uint16_t count) {
@@ -367,12 +368,19 @@ void led_effect_blink(uint8_t led_mask, uint16_t speed_ms, uint16_t count) {
     for (uint16_t c = 0; count == 0 || c < count; c++) {
         LED(led_mask, 0);     // on
         SpinDelay(speed_ms);
-        LEDsoff();            // off
+        // Turn off only the requested LEDs
+        if (led_mask & LED_A) LED_A_OFF();
+        if (led_mask & LED_B) LED_B_OFF();
+        if (led_mask & LED_C) LED_C_OFF();
+        if (led_mask & LED_D) LED_D_OFF();
         SpinDelay(speed_ms);
         if (BUTTON_PRESS()) break;
         WDT_HIT();
     }
-    LEDsoff();
+    if (led_mask & LED_A) LED_A_OFF();
+    if (led_mask & LED_B) LED_B_OFF();
+    if (led_mask & LED_C) LED_C_OFF();
+    if (led_mask & LED_D) LED_D_OFF();
 }
 
 // Determine if a button is double clicked, single clicked,

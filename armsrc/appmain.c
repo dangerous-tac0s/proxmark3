@@ -2618,20 +2618,29 @@ static void PacketReceived(PacketCommandNG *packet) {
                 break;
             }
             payload_led_control_t *payload = (payload_led_control_t *)packet->data.asBytes;
+            // For PWM operations, iterate over each LED bit in the mask
+            // since PWM functions only accept single-LED values
+            uint8_t leds[] = {LED_A, LED_B, LED_C, LED_D};
             switch (payload->action) {
                 case 0: // off
-                    led_pwm_disable(payload->led);
+                    for (uint8_t i = 0; i < 4; i++) {
+                        if (payload->led & leds[i]) led_pwm_disable(leds[i]);
+                    }
                     if (payload->led & LED_A) LED_A_OFF();
                     if (payload->led & LED_B) LED_B_OFF();
                     if (payload->led & LED_C) LED_C_OFF();
                     if (payload->led & LED_D) LED_D_OFF();
                     break;
                 case 1: // on
-                    led_pwm_disable(payload->led);
+                    for (uint8_t i = 0; i < 4; i++) {
+                        if (payload->led & leds[i]) led_pwm_disable(leds[i]);
+                    }
                     LED(payload->led, 0);
                     break;
                 case 2: // toggle
-                    led_pwm_disable(payload->led);
+                    for (uint8_t i = 0; i < 4; i++) {
+                        if (payload->led & leds[i]) led_pwm_disable(leds[i]);
+                    }
                     if (payload->led & LED_A) LED_A_INV();
                     if (payload->led & LED_B) LED_B_INV();
                     if (payload->led & LED_C) LED_C_INV();
@@ -2639,13 +2648,26 @@ static void PacketReceived(PacketCommandNG *packet) {
                     break;
                 case 3: // PWM brightness
                     led_pwm_init();
-                    led_set_pwm_brightness(payload->led, payload->brightness);
+                    for (uint8_t i = 0; i < 4; i++) {
+                        if (payload->led & leds[i])
+                            led_set_pwm_brightness(leds[i], payload->brightness);
+                    }
                     break;
-                case 4: // pulse effect (blocking)
-                    led_effect_pulse(payload->led, payload->speed, payload->count);
+                case 4: // pulse effect (blocking) - use first PWM-capable LED in mask
+                    for (uint8_t i = 0; i < 4; i++) {
+                        if (payload->led & leds[i]) {
+                            led_effect_pulse(leds[i], payload->speed, payload->count);
+                            break;
+                        }
+                    }
                     break;
-                case 5: // fade effect (blocking)
-                    led_effect_fade(payload->led, payload->speed);
+                case 5: // fade effect (blocking) - use first PWM-capable LED in mask
+                    for (uint8_t i = 0; i < 4; i++) {
+                        if (payload->led & leds[i]) {
+                            led_effect_fade(leds[i], payload->speed);
+                            break;
+                        }
+                    }
                     break;
                 case 6: // blink effect (blocking)
                     led_effect_blink(payload->led, payload->speed, payload->count);
