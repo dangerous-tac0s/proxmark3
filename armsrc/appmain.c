@@ -2750,7 +2750,7 @@ static void PacketReceived(PacketCommandNG *packet) {
                     FpgaSendCommand(FPGA_CMD_SET_DIVISOR, packet->data.asBytes[1]);
                     if (g_tune_led_lf) {
                         led_pwm_init();
-                        led_set_pwm_brightness(LED_A, 0);
+                        led_set_pwm_brightness(LED_LF_TUNE, 0);
                     }
                     reply_ng(CMD_MEASURE_ANTENNA_TUNING_LF, PM3_SUCCESS, NULL, 0);
                     break;
@@ -2764,14 +2764,14 @@ static void PacketReceived(PacketCommandNG *packet) {
                     if (g_tune_led_lf) {
                         uint8_t brightness = (uint8_t)((volt * 100) / MAX_ADC_LF_VOLTAGE);
                         if (brightness > 100) brightness = 100;
-                        led_set_pwm_brightness(LED_A, brightness);
+                        led_set_pwm_brightness(LED_LF_TUNE, brightness);
                     }
                     reply_ng(CMD_MEASURE_ANTENNA_TUNING_LF, PM3_SUCCESS, (uint8_t *)&volt, sizeof(volt));
                     break;
                 }
                 case 3:
                     if (g_tune_led_lf) {
-                        led_pwm_disable(LED_A);
+                        led_pwm_disable(LED_LF_TUNE);
                         g_tune_led_lf = false;
                     }
                     FpgaWriteConfWord(FPGA_MAJOR_MODE_OFF);

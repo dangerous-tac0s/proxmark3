@@ -62,11 +62,15 @@
 #define LED_RED2   LED_D
 #endif
 
-// HF tune LED: the PWM-capable LED on PA2
+// Tune LED assignments (must be PWM-capable: PA0/PWM0 or PA2/PWM2)
 #ifndef LED_ORDER_PM3EASY
-#define LED_HF_TUNE LED_D   // RDV4: LED_D is on PA2/PWM2
+// RDV4: LF=Red2 (LED_D/PA2/PWM2), HF=Orange (LED_A/PA0/PWM0)
+#define LED_LF_TUNE LED_D
+#define LED_HF_TUNE LED_A
 #else
-#define LED_HF_TUNE LED_B   // PM3 Easy: LED_B is on PA2/PWM2
+// PM3 Easy: LF=Green (LED_A/PA0/PWM0), HF=Red (LED_B/PA2/PWM2)
+#define LED_LF_TUNE LED_A
+#define LED_HF_TUNE LED_B
 #endif
 
 #define BUTTON_HOLD 1
