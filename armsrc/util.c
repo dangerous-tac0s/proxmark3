@@ -251,17 +251,17 @@ int BUTTON_CLICKED(int ms) {
         return BUTTON_NO_CLICK;
 
     // Borrow a PWM unit for my real-time clock
-    AT91C_BASE_PWMC->PWMC_ENA = PWM_CHANNEL(0);
+    AT91C_BASE_PWMC->PWMC_ENA = PWM_CHANNEL(1);
     // 48 MHz / 1024 gives 46.875 kHz
-    AT91C_BASE_PWMC_CH0->PWMC_CMR = PWM_CH_MODE_PRESCALER(10);
-    AT91C_BASE_PWMC_CH0->PWMC_CDTYR = 0;
-    AT91C_BASE_PWMC_CH0->PWMC_CPRDR = 0xffff;
+    AT91C_BASE_PWMC_CH1->PWMC_CMR = PWM_CH_MODE_PRESCALER(10);
+    AT91C_BASE_PWMC_CH1->PWMC_CDTYR = 0;
+    AT91C_BASE_PWMC_CH1->PWMC_CPRDR = 0xffff;
 
-    uint16_t start = AT91C_BASE_PWMC_CH0->PWMC_CCNTR;
+    uint16_t start = AT91C_BASE_PWMC_CH1->PWMC_CCNTR;
 
     int letoff = 0;
     for (;;) {
-        uint16_t now = AT91C_BASE_PWMC_CH0->PWMC_CCNTR;
+        uint16_t now = AT91C_BASE_PWMC_CH1->PWMC_CCNTR;
 
         // We haven't let off the button yet
         if (!letoff) {
@@ -270,7 +270,7 @@ int BUTTON_CLICKED(int ms) {
                 letoff = 1;
 
                 // reset our timer for 500ms
-                start = AT91C_BASE_PWMC_CH0->PWMC_CCNTR;
+                start = AT91C_BASE_PWMC_CH1->PWMC_CCNTR;
                 ticks = ((MCK / 1000) * (500)) >> 10;
             }
 
@@ -316,16 +316,16 @@ int BUTTON_HELD(int ms) {
     }
 
     // Borrow a PWM unit for my real-time clock
-    AT91C_BASE_PWMC->PWMC_ENA = PWM_CHANNEL(0);
+    AT91C_BASE_PWMC->PWMC_ENA = PWM_CHANNEL(1);
     // 48 MHz / 1024 gives 46.875 kHz
-    AT91C_BASE_PWMC_CH0->PWMC_CMR = PWM_CH_MODE_PRESCALER(10);
-    AT91C_BASE_PWMC_CH0->PWMC_CDTYR = 0;
-    AT91C_BASE_PWMC_CH0->PWMC_CPRDR = 0xffff;
+    AT91C_BASE_PWMC_CH1->PWMC_CMR = PWM_CH_MODE_PRESCALER(10);
+    AT91C_BASE_PWMC_CH1->PWMC_CDTYR = 0;
+    AT91C_BASE_PWMC_CH1->PWMC_CPRDR = 0xffff;
 
-    uint16_t start = AT91C_BASE_PWMC_CH0->PWMC_CCNTR;
+    uint16_t start = AT91C_BASE_PWMC_CH1->PWMC_CCNTR;
 
     for (;;) {
-        uint16_t now = AT91C_BASE_PWMC_CH0->PWMC_CCNTR;
+        uint16_t now = AT91C_BASE_PWMC_CH1->PWMC_CCNTR;
 
         // As soon as our button let go, we didn't hold long enough
         if (BUTTON_PRESS() == false) {
