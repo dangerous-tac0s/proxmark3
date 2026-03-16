@@ -137,10 +137,10 @@ static uint8_t tune_led_pulse_step(void) {
     if (g_tune_led_pulse_counter >= 40)
         g_tune_led_pulse_counter = 0;
 
-    // Triangle wave: 0→20→0 mapped to brightness 5→40→5
+    // Triangle wave: 0→20→0 mapped to brightness 2→20→2
     uint8_t pos = g_tune_led_pulse_counter;
     if (pos >= 20) pos = 40 - pos;  // fold back
-    return 5 + (pos * 35) / 20;     // 5 to 40
+    return 2 + (pos * 18) / 20;     // 2 to 20
 }
 
 int tearoff_hook(void) {
