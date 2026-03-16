@@ -296,7 +296,8 @@ int CmdHFTune(const char *Cmd) {
                   "Continuously measure HF antenna tuning.\n"
                   "Press pm3 button or <Enter> to interrupt.",
                   "hf tune\n"
-                  "hf tune --mix"
+                  "hf tune --mix\n"
+                  "hf tune --led"
                  );
 
     void *argtable[] = {
@@ -306,6 +307,7 @@ int CmdHFTune(const char *Cmd) {
         arg_lit0(NULL, "mix", "mixed style"),
         arg_lit0(NULL, "value", "values style"),
         arg_lit0("v", "verbose", "verbose output"),
+        arg_lit0(NULL, "led", "visualize signal strength on LED"),
         arg_param_end
     };
     CLIExecWithReturn(ctx, Cmd, argtable, true);
@@ -314,6 +316,7 @@ int CmdHFTune(const char *Cmd) {
     bool is_mix = arg_get_lit(ctx, 3);
     bool is_value = arg_get_lit(ctx, 4);
     bool verbose = arg_get_lit(ctx, 5);
+    bool use_led = arg_get_lit(ctx, 6);
     CLIParserFree(ctx);
 
     if ((is_bar + is_mix + is_value) > 1) {
@@ -334,7 +337,7 @@ int CmdHFTune(const char *Cmd) {
     PacketResponseNG resp;
     clearCommandBuffer();
 
-    uint8_t mode[] = {1};
+    uint8_t mode[] = {1, use_led ? 1 : 0};
     SendCommandNG(CMD_MEASURE_ANTENNA_TUNING_HF, mode, sizeof(mode));
     if (WaitForResponseTimeout(CMD_MEASURE_ANTENNA_TUNING_HF, &resp, 1000) == false) {
         PrintAndLogEx(WARNING, "timeout while waiting for Proxmark HF initialization, aborting");
