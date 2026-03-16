@@ -98,6 +98,9 @@ uint16_t g_tearoff_delay_us = 0;
 bool g_tearoff_enabled = false;
 uint8_t g_tearoff_skip = 0;
 
+static bool g_tune_led_hf = false;
+static bool g_tune_led_lf = false;
+
 int tearoff_hook(void) {
     if (g_tearoff_enabled) {
         if (g_tearoff_delay_us == 0) {
@@ -2609,6 +2612,53 @@ static void PacketReceived(PacketCommandNG *packet) {
             BigBuf_free();
             break;
         }
+        case CMD_LED_CONTROL: {
+            if (packet->length != sizeof(payload_led_control_t)) {
+                reply_ng(CMD_LED_CONTROL, PM3_EINVARG, NULL, 0);
+                break;
+            }
+            payload_led_control_t *payload = (payload_led_control_t *)packet->data.asBytes;
+            switch (payload->action) {
+                case 0: // off
+                    led_pwm_disable(payload->led);
+                    if (payload->led & LED_A) LED_A_OFF();
+                    if (payload->led & LED_B) LED_B_OFF();
+                    if (payload->led & LED_C) LED_C_OFF();
+                    if (payload->led & LED_D) LED_D_OFF();
+                    break;
+                case 1: // on
+                    led_pwm_disable(payload->led);
+                    LED(payload->led, 0);
+                    break;
+                case 2: // toggle
+                    led_pwm_disable(payload->led);
+                    if (payload->led & LED_A) LED_A_INV();
+                    if (payload->led & LED_B) LED_B_INV();
+                    if (payload->led & LED_C) LED_C_INV();
+                    if (payload->led & LED_D) LED_D_INV();
+                    break;
+                case 3: // PWM brightness
+                    led_pwm_init();
+                    led_set_pwm_brightness(payload->led, payload->brightness);
+                    break;
+                case 4: // pulse effect (blocking)
+                    led_effect_pulse(payload->led, payload->speed, payload->count);
+                    break;
+                case 5: // fade effect (blocking)
+                    led_effect_fade(payload->led, payload->speed);
+                    break;
+                case 6: // blink effect (blocking)
+                    led_effect_blink(payload->led, payload->speed, payload->count);
+                    break;
+                default:
+                    reply_ng(CMD_LED_CONTROL, PM3_EINVARG, NULL, 0);
+                    break;
+            }
+            if (payload->action <= 6) {
+                reply_ng(CMD_LED_CONTROL, PM3_SUCCESS, NULL, 0);
+            }
+            break;
+        }
 #ifdef WITH_LF
         case CMD_MEASURE_ANTENNA_TUNING: {
             MeasureAntennaTuning();
@@ -2616,24 +2666,41 @@ static void PacketReceived(PacketCommandNG *packet) {
         }
 #endif
         case CMD_MEASURE_ANTENNA_TUNING_HF: {
-            if (packet->length != 1)
+            if (packet->length < 1 || packet->length > 2) {
                 reply_ng(CMD_MEASURE_ANTENNA_TUNING_HF, PM3_EINVARG, NULL, 0);
+                break;
+            }
 
             switch (packet->data.asBytes[0]) {
                 case 1: // MEASURE_ANTENNA_TUNING_HF_START
-                    // Let the FPGA drive the high-frequency antenna around 13.56 MHz.
+                    g_tune_led_hf = (packet->length >= 2) && (packet->data.asBytes[1] != 0);
                     FpgaDownloadAndGo(FPGA_BITSTREAM_HF);
                     FpgaWriteConfWord(FPGA_MAJOR_MODE_HF_READER);
+                    if (g_tune_led_hf) {
+                        led_pwm_init();
+                        led_set_pwm_brightness(LED_HF_TUNE, 0);
+                    }
                     reply_ng(CMD_MEASURE_ANTENNA_TUNING_HF, PM3_SUCCESS, NULL, 0);
                     break;
-                case 2:
+                case 2: {
                     if (button_status == BUTTON_SINGLE_CLICK) {
                         reply_ng(CMD_MEASURE_ANTENNA_TUNING_HF, PM3_EOPABORTED, NULL, 0);
+                        break;
                     }
                     uint16_t volt = MeasureAntennaTuningHfData();
+                    if (g_tune_led_hf) {
+                        uint8_t brightness = (uint8_t)((volt * 100) / MAX_ADC_HF_VOLTAGE);
+                        if (brightness > 100) brightness = 100;
+                        led_set_pwm_brightness(LED_HF_TUNE, brightness);
+                    }
                     reply_ng(CMD_MEASURE_ANTENNA_TUNING_HF, PM3_SUCCESS, (uint8_t *)&volt, sizeof(volt));
                     break;
+                }
                 case 3:
+                    if (g_tune_led_hf) {
+                        led_pwm_disable(LED_HF_TUNE);
+                        g_tune_led_hf = false;
+                    }
                     FpgaWriteConfWord(FPGA_MAJOR_MODE_OFF);
                     reply_ng(CMD_MEASURE_ANTENNA_TUNING_HF, PM3_SUCCESS, NULL, 0);
                     break;
@@ -2648,26 +2715,43 @@ static void PacketReceived(PacketCommandNG *packet) {
             break;
         }
         case CMD_MEASURE_ANTENNA_TUNING_LF: {
-            if (packet->length != 2)
+            if (packet->length < 2 || packet->length > 3) {
                 reply_ng(CMD_MEASURE_ANTENNA_TUNING_LF, PM3_EINVARG, NULL, 0);
+                break;
+            }
 
             switch (packet->data.asBytes[0]) {
                 case 1: // MEASURE_ANTENNA_TUNING_LF_START
-                    // Let the FPGA drive the low-frequency antenna around 125kHz
+                    g_tune_led_lf = (packet->length >= 3) && (packet->data.asBytes[2] != 0);
                     FpgaDownloadAndGo(FPGA_BITSTREAM_LF);
                     FpgaWriteConfWord(FPGA_MAJOR_MODE_LF_READER | FPGA_LF_ADC_READER_FIELD);
                     FpgaSendCommand(FPGA_CMD_SET_DIVISOR, packet->data.asBytes[1]);
+                    if (g_tune_led_lf) {
+                        led_pwm_init();
+                        led_set_pwm_brightness(LED_A, 0);
+                    }
                     reply_ng(CMD_MEASURE_ANTENNA_TUNING_LF, PM3_SUCCESS, NULL, 0);
                     break;
-                case 2:
+                case 2: {
                     if (button_status == BUTTON_SINGLE_CLICK) {
                         reply_ng(CMD_MEASURE_ANTENNA_TUNING_LF, PM3_EOPABORTED, NULL, 0);
+                        break;
                     }
 
                     uint32_t volt = MeasureAntennaTuningLfData();
+                    if (g_tune_led_lf) {
+                        uint8_t brightness = (uint8_t)((volt * 100) / MAX_ADC_LF_VOLTAGE);
+                        if (brightness > 100) brightness = 100;
+                        led_set_pwm_brightness(LED_A, brightness);
+                    }
                     reply_ng(CMD_MEASURE_ANTENNA_TUNING_LF, PM3_SUCCESS, (uint8_t *)&volt, sizeof(volt));
                     break;
+                }
                 case 3:
+                    if (g_tune_led_lf) {
+                        led_pwm_disable(LED_A);
+                        g_tune_led_lf = false;
+                    }
                     FpgaWriteConfWord(FPGA_MAJOR_MODE_OFF);
                     reply_ng(CMD_MEASURE_ANTENNA_TUNING_LF, PM3_SUCCESS, NULL, 0);
                     break;
