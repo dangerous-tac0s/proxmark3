@@ -100,6 +100,46 @@ uint8_t g_tearoff_skip = 0;
 
 static bool g_tune_led_hf = false;
 static bool g_tune_led_lf = false;
+static uint8_t g_tune_led_pulse_counter = 0;
+
+// Tune LED thresholds (millivolts)
+// Lower voltage = better coupling
+#define LF_TUNE_LED_MAX      71000   // initial bar max
+#define LF_TUNE_LED_PULSE    56800   // 80% of max - above this = pulse (bad)
+#define LF_TUNE_LED_TARGET    7000   // 100% brightness (good coupling)
+
+#define HF_TUNE_LED_MAX      65535   // initial bar max
+#define HF_TUNE_LED_PULSE    52428   // 80% of max - above this = pulse (bad)
+#define HF_TUNE_LED_TARGET    2000   // 100% brightness (good coupling)
+
+// Compute tune LED brightness from voltage reading
+// Returns 0 for pulse mode, 1-100 for brightness mode
+static uint8_t tune_led_brightness(uint32_t volt, uint32_t pulse_thresh, uint32_t target) {
+    // Above pulse threshold → pulse (return 0 as sentinel)
+    if (volt > pulse_thresh)
+        return 0;
+
+    // At or below target → full brightness
+    if (volt <= target)
+        return 100;
+
+    // Linear ramp: pulse_thresh (20%) → target (100%)
+    // brightness = 100 - (volt - target) * 80 / (pulse_thresh - target)
+    return (uint8_t)(100 - ((volt - target) * 80) / (pulse_thresh - target));
+}
+
+// Non-blocking pulse: triangle wave using a counter
+// Returns brightness 5-40 to create a gentle pulse effect
+static uint8_t tune_led_pulse_step(void) {
+    g_tune_led_pulse_counter++;
+    if (g_tune_led_pulse_counter >= 40)
+        g_tune_led_pulse_counter = 0;
+
+    // Triangle wave: 0→20→0 mapped to brightness 5→40→5
+    uint8_t pos = g_tune_led_pulse_counter;
+    if (pos >= 20) pos = 40 - pos;  // fold back
+    return 5 + (pos * 35) / 20;     // 5 to 40
+}
 
 int tearoff_hook(void) {
     if (g_tearoff_enabled) {
@@ -2701,8 +2741,9 @@ static void PacketReceived(PacketCommandNG *packet) {
                     }
                     uint16_t volt = MeasureAntennaTuningHfData();
                     if (g_tune_led_hf) {
-                        uint8_t brightness = (uint8_t)((volt * 100) / MAX_ADC_HF_VOLTAGE);
-                        if (brightness > 100) brightness = 100;
+                        uint8_t brightness = tune_led_brightness(volt, HF_TUNE_LED_PULSE, HF_TUNE_LED_TARGET);
+                        if (brightness == 0)
+                            brightness = tune_led_pulse_step();
                         led_set_pwm_brightness(LED_HF_TUNE, brightness);
                     }
                     reply_ng(CMD_MEASURE_ANTENNA_TUNING_HF, PM3_SUCCESS, (uint8_t *)&volt, sizeof(volt));
@@ -2752,8 +2793,9 @@ static void PacketReceived(PacketCommandNG *packet) {
 
                     uint32_t volt = MeasureAntennaTuningLfData();
                     if (g_tune_led_lf) {
-                        uint8_t brightness = (uint8_t)((volt * 100) / MAX_ADC_LF_VOLTAGE);
-                        if (brightness > 100) brightness = 100;
+                        uint8_t brightness = tune_led_brightness(volt, LF_TUNE_LED_PULSE, LF_TUNE_LED_TARGET);
+                        if (brightness == 0)
+                            brightness = tune_led_pulse_step();
                         led_set_pwm_brightness(LED_LF_TUNE, brightness);
                     }
                     reply_ng(CMD_MEASURE_ANTENNA_TUNING_LF, PM3_SUCCESS, (uint8_t *)&volt, sizeof(volt));
