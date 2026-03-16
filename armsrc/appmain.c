@@ -100,47 +100,43 @@ uint8_t g_tearoff_skip = 0;
 
 static bool g_tune_led_hf = false;
 static bool g_tune_led_lf = false;
-static uint8_t g_tune_led_pulse_counter = 0;
 
-// Auto-calibrated tune LED thresholds (set during init from baseline reading)
-static uint32_t g_tune_led_pulse_thresh = 0;  // above this = pulse (unloaded)
-static uint32_t g_tune_led_target = 0;        // at/below this = 100% brightness
+// Auto-calibrated baseline voltage (set during init)
+static uint32_t g_tune_led_baseline = 0;
 
-// Calibrate tune LED from baseline (unloaded) voltage reading
-// pulse_thresh = 90% of baseline (voltage drops slightly = start showing brightness)
-// target = 30% of baseline (significant loading = full brightness)
-static void tune_led_calibrate(uint32_t baseline) {
-    g_tune_led_pulse_thresh = (baseline * 90) / 100;
-    g_tune_led_target = (baseline * 30) / 100;
-    g_tune_led_pulse_counter = 0;
+// Integer square root (for logarithmic brightness curve)
+static uint32_t isqrt(uint32_t n) {
+    if (n == 0) return 0;
+    uint32_t x = n;
+    uint32_t y = (x + 1) / 2;
+    while (y < x) {
+        x = y;
+        y = (x + n / x) / 2;
+    }
+    return x;
 }
 
 // Compute tune LED brightness from voltage reading
-// Returns 0 for pulse mode, 1-100 for brightness mode
+// Uses sqrt curve: 5% at baseline, 100% at 0V
+// Lower voltage = better coupling = brighter LED
 static uint8_t tune_led_brightness(uint32_t volt) {
-    // Above pulse threshold → pulse (return 0 as sentinel)
-    if (volt > g_tune_led_pulse_thresh)
-        return 0;
+    if (g_tune_led_baseline == 0)
+        return 5;
 
-    // At or below target → max brightness
-    if (volt <= g_tune_led_target)
-        return 50;
+    if (volt >= g_tune_led_baseline)
+        return 5;
 
-    // Linear ramp: pulse_thresh (5%) → target (50%)
-    return (uint8_t)(50 - ((volt - g_tune_led_target) * 45) / (g_tune_led_pulse_thresh - g_tune_led_target));
-}
+    if (volt == 0)
+        return 100;
 
-// Non-blocking pulse: triangle wave using a counter
-// Returns brightness 5-40 to create a gentle pulse effect
-static uint8_t tune_led_pulse_step(void) {
-    g_tune_led_pulse_counter++;
-    if (g_tune_led_pulse_counter >= 40)
-        g_tune_led_pulse_counter = 0;
+    // ratio: 0 at baseline, 1000 at 0V
+    uint32_t ratio = ((g_tune_led_baseline - volt) * 1000) / g_tune_led_baseline;
 
-    // Triangle wave: 0→20→0 mapped to brightness 2→5→2
-    uint8_t pos = g_tune_led_pulse_counter;
-    if (pos >= 20) pos = 40 - pos;  // fold back
-    return 2 + (pos * 3) / 20;      // 2 to 5
+    // sqrt curve: sqrt(ratio/1000) mapped to 5-100%
+    // sqrt(ratio * 1000) gives 0-1000 range for ratio 0-1000
+    uint32_t sqrt_val = isqrt(ratio * 1000);  // 0 to ~1000
+
+    return (uint8_t)(5 + (sqrt_val * 95) / 1000);
 }
 
 int tearoff_hook(void) {
@@ -2734,9 +2730,8 @@ static void PacketReceived(PacketCommandNG *packet) {
                         led_pwm_init();
                         // Take baseline reading for auto-calibration
                         SpinDelay(50);  // let FPGA settle
-                        uint16_t baseline = MeasureAntennaTuningHfData();
-                        tune_led_calibrate(baseline);
-                        led_set_pwm_brightness(LED_HF_TUNE, 0);
+                        g_tune_led_baseline = MeasureAntennaTuningHfData();
+                        led_set_pwm_brightness(LED_HF_TUNE, 5);
                     }
                     reply_ng(CMD_MEASURE_ANTENNA_TUNING_HF, PM3_SUCCESS, NULL, 0);
                     break;
@@ -2747,10 +2742,7 @@ static void PacketReceived(PacketCommandNG *packet) {
                     }
                     uint16_t volt = MeasureAntennaTuningHfData();
                     if (g_tune_led_hf) {
-                        uint8_t brightness = tune_led_brightness(volt);
-                        if (brightness == 0)
-                            brightness = tune_led_pulse_step();
-                        led_set_pwm_brightness(LED_HF_TUNE, brightness);
+                        led_set_pwm_brightness(LED_HF_TUNE, tune_led_brightness(volt));
                     }
                     reply_ng(CMD_MEASURE_ANTENNA_TUNING_HF, PM3_SUCCESS, (uint8_t *)&volt, sizeof(volt));
                     break;
@@ -2789,9 +2781,8 @@ static void PacketReceived(PacketCommandNG *packet) {
                         led_pwm_init();
                         // Take baseline reading for auto-calibration
                         SpinDelay(50);  // let FPGA settle
-                        uint32_t baseline = MeasureAntennaTuningLfData();
-                        tune_led_calibrate(baseline);
-                        led_set_pwm_brightness(LED_LF_TUNE, 0);
+                        g_tune_led_baseline = MeasureAntennaTuningLfData();
+                        led_set_pwm_brightness(LED_LF_TUNE, 5);
                     }
                     reply_ng(CMD_MEASURE_ANTENNA_TUNING_LF, PM3_SUCCESS, NULL, 0);
                     break;
@@ -2803,10 +2794,7 @@ static void PacketReceived(PacketCommandNG *packet) {
 
                     uint32_t volt = MeasureAntennaTuningLfData();
                     if (g_tune_led_lf) {
-                        uint8_t brightness = tune_led_brightness(volt);
-                        if (brightness == 0)
-                            brightness = tune_led_pulse_step();
-                        led_set_pwm_brightness(LED_LF_TUNE, brightness);
+                        led_set_pwm_brightness(LED_LF_TUNE, tune_led_brightness(volt));
                     }
                     reply_ng(CMD_MEASURE_ANTENNA_TUNING_LF, PM3_SUCCESS, (uint8_t *)&volt, sizeof(volt));
                     break;
