@@ -103,6 +103,9 @@ static bool g_tune_led_lf = false;
 
 // Auto-calibrated baseline voltage (set during init)
 static uint32_t g_tune_led_baseline = 0;
+static uint32_t g_tune_led_target = 0;  // 0 = use 0V as target, >0 = target voltage
+
+#define TUNE_LED_IMPLANT_DROP 2000  // implant mode: 100% at baseline - 2000mV
 
 // Integer square root (for logarithmic brightness curve)
 static uint32_t isqrt(uint32_t n) {
@@ -117,7 +120,7 @@ static uint32_t isqrt(uint32_t n) {
 }
 
 // Compute tune LED brightness from voltage reading
-// Uses sqrt curve: 5% at baseline, 100% at 0V
+// Uses sqrt curve: 5% at baseline, 100% at target (0V or implant drop)
 // Lower voltage = better coupling = brighter LED
 static uint8_t tune_led_brightness(uint32_t volt) {
     if (g_tune_led_baseline == 0)
@@ -126,14 +129,17 @@ static uint8_t tune_led_brightness(uint32_t volt) {
     if (volt >= g_tune_led_baseline)
         return 5;
 
-    if (volt == 0)
+    if (volt <= g_tune_led_target)
         return 100;
 
-    // ratio: 0 at baseline, 1000 at 0V
-    uint32_t ratio = ((g_tune_led_baseline - volt) * 1000) / g_tune_led_baseline;
+    // ratio: 0 at baseline, 1000 at target
+    uint32_t range = g_tune_led_baseline - g_tune_led_target;
+    if (range == 0) return 100;
+
+    uint32_t ratio = ((g_tune_led_baseline - volt) * 1000) / range;
+    if (ratio > 1000) ratio = 1000;
 
     // sqrt curve: sqrt(ratio/1000) mapped to 5-100%
-    // sqrt(ratio * 1000) gives 0-1000 range for ratio 0-1000
     uint32_t sqrt_val = isqrt(ratio * 1000);  // 0 to ~1000
 
     return (uint8_t)(5 + (sqrt_val * 95) / 1000);
@@ -2731,6 +2737,7 @@ static void PacketReceived(PacketCommandNG *packet) {
                         // Take baseline reading for auto-calibration
                         SpinDelay(50);  // let FPGA settle
                         g_tune_led_baseline = MeasureAntennaTuningHfData();
+                        g_tune_led_target = 0;
                         led_set_pwm_brightness(LED_HF_TUNE, 5);
                     }
                     reply_ng(CMD_MEASURE_ANTENNA_TUNING_HF, PM3_SUCCESS, NULL, 0);
@@ -2782,6 +2789,11 @@ static void PacketReceived(PacketCommandNG *packet) {
                         // Take baseline reading for auto-calibration
                         SpinDelay(50);  // let FPGA settle
                         g_tune_led_baseline = MeasureAntennaTuningLfData();
+                        bool implant_mode = (packet->data.asBytes[2] == 2);
+                        if (implant_mode && g_tune_led_baseline > TUNE_LED_IMPLANT_DROP)
+                            g_tune_led_target = g_tune_led_baseline - TUNE_LED_IMPLANT_DROP;
+                        else
+                            g_tune_led_target = 0;
                         led_set_pwm_brightness(LED_LF_TUNE, 5);
                     }
                     reply_ng(CMD_MEASURE_ANTENNA_TUNING_LF, PM3_SUCCESS, NULL, 0);

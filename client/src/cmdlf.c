@@ -107,7 +107,8 @@ static int CmdLFTune(const char *Cmd) {
                   "Press button or <Enter> to interrupt.",
                   "lf tune\n"
                   "lf tune --mix\n"
-                  "lf tune --led"
+                  "lf tune --led\n"
+                  "lf tune --led --implant"
                  );
 
     char q_str[60];
@@ -122,6 +123,7 @@ static int CmdLFTune(const char *Cmd) {
         arg_lit0(NULL, "value", "values style"),
         arg_lit0("v", "verbose", "verbose output"),
         arg_lit0(NULL, "led", "visualize signal strength on LED"),
+        arg_lit0(NULL, "implant", "implant tune mode (LED 100% at 2V drop from baseline)"),
         arg_param_end
     };
     CLIExecWithReturn(ctx, Cmd, argtable, true);
@@ -134,7 +136,13 @@ static int CmdLFTune(const char *Cmd) {
     bool is_value = arg_get_lit(ctx, 6);
     bool verbose = arg_get_lit(ctx, 7);
     bool use_led = arg_get_lit(ctx, 8);
+    bool implant = arg_get_lit(ctx, 9);
     CLIParserFree(ctx);
+
+    if (implant && !use_led) {
+        PrintAndLogEx(ERR, "--implant requires --led");
+        return PM3_EINVARG;
+    }
 
     if (divisor < 19) {
         PrintAndLogEx(ERR, "divisor must be between 19 and 255");
@@ -176,7 +184,7 @@ static int CmdLFTune(const char *Cmd) {
 
     uint8_t params[] = {1, 0, 0};
     params[1] = divisor;
-    params[2] = use_led ? 1 : 0;
+    params[2] = implant ? 2 : (use_led ? 1 : 0);
     PacketResponseNG resp;
     clearCommandBuffer();
 
