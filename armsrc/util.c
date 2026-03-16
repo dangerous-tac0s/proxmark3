@@ -231,6 +231,149 @@ void SpinUp(uint32_t speed) {
     LED_D_OFF();
 }
 
+// ---------------------------------------------------------------------------
+// PWM LED brightness control
+// Only LED_A (PA0/PWM0) and LED_B/LED_D (PA2/PWM2) support hardware PWM.
+// LEDs are active-low: duty = period - (brightness * period / 100)
+// PWM frequency: MCK / period = 48MHz / 1000 = 48kHz
+// ---------------------------------------------------------------------------
+
+#define LED_PWM_PERIOD 1000
+
+// Check if a LED bitmask corresponds to a PWM-capable LED
+// Returns PWM channel base address, or NULL if not PWM-capable
+static AT91PS_PWMC_CH led_pwm_channel(uint8_t led) {
+    if (led == LED_A) return AT91C_BASE_PWMC_CH0;  // PA0 = PWM0
+#ifndef LED_ORDER_PM3EASY
+    if (led == LED_D) return AT91C_BASE_PWMC_CH2;  // PA2 = PWM2 (RDV4)
+#else
+    if (led == LED_B) return AT91C_BASE_PWMC_CH2;  // PA2 = PWM2 (PM3 Easy)
+#endif
+    return NULL;
+}
+
+// Returns the PWM channel number (0 or 2) for enable/disable registers
+static uint8_t led_pwm_channel_num(uint8_t led) {
+    if (led == LED_A) return 0;
+    return 2;
+}
+
+// Returns the GPIO pin for a PWM-capable LED
+static uint32_t led_pwm_gpio(uint8_t led) {
+    if (led == LED_A) return GPIO_LED_A;
+#ifndef LED_ORDER_PM3EASY
+    return GPIO_LED_D;
+#else
+    return GPIO_LED_B;
+#endif
+}
+
+void led_pwm_init(void) {
+    // Enable PWM peripheral clock
+    AT91C_BASE_PMC->PMC_PCER |= (1 << AT91C_ID_PWMC);
+}
+
+void led_set_pwm_brightness(uint8_t led, uint8_t brightness) {
+    AT91PS_PWMC_CH ch = led_pwm_channel(led);
+    if (ch == NULL) return;
+
+    if (brightness > 100) brightness = 100;
+
+    uint32_t gpio = led_pwm_gpio(led);
+    uint8_t ch_num = led_pwm_channel_num(led);
+
+    // Switch pin from GPIO to PWM peripheral (Peripheral A)
+    AT91C_BASE_PIOA->PIO_PDR = gpio;   // Disable PIO control
+    AT91C_BASE_PIOA->PIO_ASR = gpio;   // Assign to Peripheral A (PWM)
+
+    // Active-low: invert duty cycle
+    uint32_t duty = LED_PWM_PERIOD - ((brightness * LED_PWM_PERIOD) / 100);
+
+    // Configure channel if not already running
+    if (!(AT91C_BASE_PWMC->PWMC_SR & PWM_CHANNEL(ch_num))) {
+        ch->PWMC_CMR = PWM_CH_MODE_PRESCALER(0);  // MCK, no prescaler
+        ch->PWMC_CPRDR = LED_PWM_PERIOD;           // Period
+        ch->PWMC_CDTYR = duty;                     // Duty cycle
+        AT91C_BASE_PWMC->PWMC_ENA = PWM_CHANNEL(ch_num);
+    } else {
+        // Channel already running, update duty cycle
+        ch->PWMC_CUPDR = duty;
+    }
+}
+
+void led_pwm_disable(uint8_t led) {
+    AT91PS_PWMC_CH ch = led_pwm_channel(led);
+    if (ch == NULL) return;
+
+    uint32_t gpio = led_pwm_gpio(led);
+    uint8_t ch_num = led_pwm_channel_num(led);
+
+    // Disable PWM channel
+    AT91C_BASE_PWMC->PWMC_DIS = PWM_CHANNEL(ch_num);
+
+    // Return pin to GPIO control and turn LED off
+    AT91C_BASE_PIOA->PIO_PER = gpio;   // Enable PIO control
+    AT91C_BASE_PIOA->PIO_OER = gpio;   // Set as output
+    LOW(gpio);                          // LED off (active-low: LOW = off)
+}
+
+void led_effect_pulse(uint8_t led, uint16_t speed_ms, uint16_t count) {
+    if (led_pwm_channel(led) == NULL) return;
+
+    led_pwm_init();
+    // Each pulse cycle: ramp up 0->100, ramp down 100->0
+    // Split speed_ms across 200 steps (100 up + 100 down)
+    uint16_t step_delay = speed_ms / 200;
+    if (step_delay < 1) step_delay = 1;
+
+    for (uint16_t c = 0; count == 0 || c < count; c++) {
+        // Ramp up
+        for (uint8_t b = 0; b <= 100; b++) {
+            led_set_pwm_brightness(led, b);
+            SpinDelay(step_delay);
+            if (BUTTON_PRESS()) goto pulse_done;
+        }
+        // Ramp down
+        for (int8_t b = 100; b >= 0; b--) {
+            led_set_pwm_brightness(led, (uint8_t)b);
+            SpinDelay(step_delay);
+            if (BUTTON_PRESS()) goto pulse_done;
+        }
+        WDT_HIT();
+    }
+pulse_done:
+    led_pwm_disable(led);
+}
+
+void led_effect_fade(uint8_t led, uint16_t speed_ms) {
+    if (led_pwm_channel(led) == NULL) return;
+
+    led_pwm_init();
+    // Fade from 100 to 0 over speed_ms
+    uint16_t step_delay = speed_ms / 100;
+    if (step_delay < 1) step_delay = 1;
+
+    for (int8_t b = 100; b >= 0; b--) {
+        led_set_pwm_brightness(led, (uint8_t)b);
+        SpinDelay(step_delay);
+        if (BUTTON_PRESS()) break;
+        WDT_HIT();
+    }
+    led_pwm_disable(led);
+}
+
+void led_effect_blink(uint8_t led_mask, uint16_t speed_ms, uint16_t count) {
+    // Blink works on all LEDs via GPIO toggle (no PWM needed)
+    for (uint16_t c = 0; count == 0 || c < count; c++) {
+        LED(led_mask, 0);     // on
+        SpinDelay(speed_ms);
+        LEDsoff();            // off
+        SpinDelay(speed_ms);
+        if (BUTTON_PRESS()) break;
+        WDT_HIT();
+    }
+    LEDsoff();
+}
 
 // Determine if a button is double clicked, single clicked,
 // not clicked, or held down (for ms || 1sec)

@@ -62,6 +62,13 @@
 #define LED_RED2   LED_D
 #endif
 
+// HF tune LED: the PWM-capable LED on PA2
+#ifndef LED_ORDER_PM3EASY
+#define LED_HF_TUNE LED_D   // RDV4: LED_D is on PA2/PWM2
+#else
+#define LED_HF_TUNE LED_B   // PM3 Easy: LED_B is on PA2/PWM2
+#endif
+
 #define BUTTON_HOLD 1
 #define BUTTON_NO_CLICK 0
 #define BUTTON_SINGLE_CLICK -1
@@ -96,6 +103,14 @@ void SpinOff(uint32_t pause);
 void SpinErr(uint8_t led, uint32_t speed, uint8_t times);
 void SpinDown(uint32_t speed);
 void SpinUp(uint32_t speed);
+
+// PWM LED brightness control (PA0/PWM0 = LED_A, PA2/PWM2 = LED_B or LED_D)
+void led_pwm_init(void);
+void led_set_pwm_brightness(uint8_t led, uint8_t brightness);
+void led_pwm_disable(uint8_t led);
+void led_effect_pulse(uint8_t led, uint16_t speed_ms, uint16_t count);
+void led_effect_fade(uint8_t led, uint16_t speed_ms);
+void led_effect_blink(uint8_t led_mask, uint16_t speed_ms, uint16_t count);
 
 int BUTTON_CLICKED(int ms);
 int BUTTON_HELD(int ms);
