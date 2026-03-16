@@ -122,12 +122,12 @@ static uint8_t tune_led_brightness(uint32_t volt) {
     if (volt > g_tune_led_pulse_thresh)
         return 0;
 
-    // At or below target → full brightness
+    // At or below target → max brightness
     if (volt <= g_tune_led_target)
-        return 100;
+        return 50;
 
-    // Linear ramp: pulse_thresh (20%) → target (100%)
-    return (uint8_t)(100 - ((volt - g_tune_led_target) * 80) / (g_tune_led_pulse_thresh - g_tune_led_target));
+    // Linear ramp: pulse_thresh (5%) → target (50%)
+    return (uint8_t)(50 - ((volt - g_tune_led_target) * 45) / (g_tune_led_pulse_thresh - g_tune_led_target));
 }
 
 // Non-blocking pulse: triangle wave using a counter
@@ -137,10 +137,10 @@ static uint8_t tune_led_pulse_step(void) {
     if (g_tune_led_pulse_counter >= 40)
         g_tune_led_pulse_counter = 0;
 
-    // Triangle wave: 0→20→0 mapped to brightness 2→20→2
+    // Triangle wave: 0→20→0 mapped to brightness 2→5→2
     uint8_t pos = g_tune_led_pulse_counter;
     if (pos >= 20) pos = 40 - pos;  // fold back
-    return 2 + (pos * 18) / 20;     // 2 to 20
+    return 2 + (pos * 3) / 20;      // 2 to 5
 }
 
 int tearoff_hook(void) {
