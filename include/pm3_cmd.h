@@ -271,6 +271,15 @@ typedef struct
 #define CAPABILITIES_VERSION 7
 extern capabilities_t g_pm3_capabilities;
 
+// For CMD_LED_CONTROL
+typedef struct {
+    uint8_t led;        // LED bitmask: LED_A=1, LED_B=2, LED_C=4, LED_D=8
+    uint8_t action;     // 0=off, 1=on, 2=toggle, 3=pwm, 4=pulse, 5=fade, 6=blink
+    uint8_t brightness; // 0-100 (for action=3 PWM only)
+    uint16_t speed;     // cycle time ms (for effects, default 500)
+    uint16_t count;     // repeat count, 0=infinite (for effects, default 5)
+} PACKED payload_led_control_t;
+
 // For CMD_LF_T55XX_WRITEBL
 typedef struct
 {
@@ -567,6 +576,7 @@ typedef struct
 #define CMD_TIA 0x0117
 #define CMD_BREAK_LOOP 0x0118
 #define CMD_SET_TEAROFF 0x0119
+#define CMD_LED_CONTROL 0x011A
 #define CMD_GET_DBGMODE 0x0120
 
 // RDV40, Flash memory operations
