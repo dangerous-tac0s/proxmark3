@@ -1808,21 +1808,21 @@ static int CmdHWLed(const char *Cmd) {
     CLIParserContext *ctx;
     CLIParserInit(&ctx, "hw led",
                   "Control LEDs on the Proxmark3 device.\n"
-                  "Accepts color names (green, red, orange, red2) or letters (a, b, c, d).\n"
+                  "Accepts color names (green, red, orange, blue) or letters (a, b, c, d).\n"
                   "Brightness and PWM effects (pulse, fade) only work on PWM-capable LEDs:\n"
                   "  PM3 Easy: green (A) and red (B)\n"
                   "  RDV4: orange (A) and red2 (D)\n"
                   "Blink works on all LEDs.",
                   "hw led --led green --on\n"
                   "hw led --led red --brightness 50\n"
-                  "hw led --led green --pulse\n"
+                  "hw led --led blue --pulse\n"
                   "hw led --led green,red --blink --count 10\n"
                   "hw led --led all --off"
                  );
 
     void *argtable[] = {
         arg_param_begin,
-        arg_str1(NULL, "led", "<color|letter|all>", "LED: green/g, red/r, orange/o, red2, a-d, all"),
+        arg_str1(NULL, "led", "<color|letter|all>", "LED: green/g, red/r, orange/o, blue/b, a-d, all"),
         arg_lit0(NULL, "on", "turn LED on"),
         arg_lit0(NULL, "off", "turn LED off"),
         arg_lit0(NULL, "toggle", "toggle LED state"),
@@ -1875,23 +1875,37 @@ static int CmdHWLed(const char *Cmd) {
         } else if (strcasecmp(token, "green") == 0) {
             // RDV4: LED_GREEN=LED_B=0x02, Easy: LED_GREEN=LED_A=0x01
             led_mask |= is_rdv4 ? 0x02 : 0x01;
+        } else if (strcasecmp(token, "blue") == 0) {
+            // PM3 Easy only: LED_D=0x08 is physically blue
+            if (is_rdv4) {
+                PrintAndLogEx(ERR, "RDV4 has no blue LED");
+                return PM3_EINVARG;
+            }
+            led_mask |= 0x08;
         } else if (strcasecmp(token, "orange") == 0) {
             // RDV4: LED_ORANGE=LED_A=0x01, Easy: LED_ORANGE=LED_C=0x04
             led_mask |= is_rdv4 ? 0x01 : 0x04;
         } else if (strcasecmp(token, "red") == 0) {
             // RDV4: LED_RED=LED_C=0x04, Easy: LED_RED=LED_B=0x02
             led_mask |= is_rdv4 ? 0x04 : 0x02;
-        } else if (strcasecmp(token, "red2") == 0) {
-            // Both: LED_RED2=LED_D=0x08
+        } else if (strcasecmp(token, "red2") == 0 || strcasecmp(token, "r2") == 0) {
+            // RDV4: LED_RED2=LED_D=0x08
+            if (!is_rdv4) {
+                PrintAndLogEx(ERR, "PM3 Easy has no red2 LED, use 'blue' instead");
+                return PM3_EINVARG;
+            }
             led_mask |= 0x08;
         } else if (strlen(token) == 1) {
-            // Single letter: a-d for LED position, g/o/r for color
+            // Single letter color shortcuts
             switch (tolower((unsigned char)token[0])) {
-                case 'a': led_mask |= 0x01; break;
-                case 'b': led_mask |= 0x02; break;
-                case 'c': led_mask |= 0x04; break;
-                case 'd': led_mask |= 0x08; break;
                 case 'g': led_mask |= is_rdv4 ? 0x02 : 0x01; break;  // green
+                case 'b':  // blue
+                    if (is_rdv4) {
+                        PrintAndLogEx(ERR, "RDV4 has no blue LED");
+                        return PM3_EINVARG;
+                    }
+                    led_mask |= 0x08;
+                    break;
                 case 'o': led_mask |= is_rdv4 ? 0x01 : 0x04; break;  // orange
                 case 'r': led_mask |= is_rdv4 ? 0x04 : 0x02; break;  // red
                 default:
