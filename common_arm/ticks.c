@@ -32,19 +32,19 @@ void SpinDelayUsPrecision(int us) {
     int ticks = ((MCK / 1000000) * us + 16) >> 5;
 
     // Borrow a PWM unit for my real-time clock
-    AT91C_BASE_PWMC->PWMC_ENA = PWM_CHANNEL(0);
+    AT91C_BASE_PWMC->PWMC_ENA = PWM_CHANNEL(1);
 
     // 48 MHz / 32 gives 1.5 Mhz
-    AT91C_BASE_PWMC_CH0->PWMC_CMR = PWM_CH_MODE_PRESCALER(5);      // Channel Mode Register
-    AT91C_BASE_PWMC_CH0->PWMC_CDTYR = 0;                           // Channel Duty Cycle Register
-    AT91C_BASE_PWMC_CH0->PWMC_CPRDR = 0xFFFF;                      // Channel Period Register
+    AT91C_BASE_PWMC_CH1->PWMC_CMR = PWM_CH_MODE_PRESCALER(5);      // Channel Mode Register
+    AT91C_BASE_PWMC_CH1->PWMC_CDTYR = 0;                           // Channel Duty Cycle Register
+    AT91C_BASE_PWMC_CH1->PWMC_CPRDR = 0xFFFF;                      // Channel Period Register
 
-    uint16_t end = AT91C_BASE_PWMC_CH0->PWMC_CCNTR + ticks;
-    if (end == 0) // AT91C_BASE_PWMC_CH0->PWMC_CCNTR is never == 0
+    uint16_t end = AT91C_BASE_PWMC_CH1->PWMC_CCNTR + ticks;
+    if (end == 0) // AT91C_BASE_PWMC_CH1->PWMC_CCNTR is never == 0
         end++;    // so we have to end++ to avoid inivity loop
 
     for (;;) {
-        uint16_t now = AT91C_BASE_PWMC_CH0->PWMC_CCNTR;
+        uint16_t now = AT91C_BASE_PWMC_CH1->PWMC_CCNTR;
 
         if (now == end)
             return;
@@ -59,19 +59,19 @@ void SpinDelayUs(int us) {
     int ticks = ((MCK / 1000000) * us + 512) >> 10;
 
     // Borrow a PWM unit for my real-time clock
-    AT91C_BASE_PWMC->PWMC_ENA = PWM_CHANNEL(0);
+    AT91C_BASE_PWMC->PWMC_ENA = PWM_CHANNEL(1);
 
     // 48 MHz / 1024 gives 46.875 kHz
-    AT91C_BASE_PWMC_CH0->PWMC_CMR = PWM_CH_MODE_PRESCALER(10);      // Channel Mode Register
-    AT91C_BASE_PWMC_CH0->PWMC_CDTYR = 0;                            // Channel Duty Cycle Register
-    AT91C_BASE_PWMC_CH0->PWMC_CPRDR = 0xffff;                       // Channel Period Register
+    AT91C_BASE_PWMC_CH1->PWMC_CMR = PWM_CH_MODE_PRESCALER(10);      // Channel Mode Register
+    AT91C_BASE_PWMC_CH1->PWMC_CDTYR = 0;                            // Channel Duty Cycle Register
+    AT91C_BASE_PWMC_CH1->PWMC_CPRDR = 0xffff;                       // Channel Period Register
 
-    uint16_t end = AT91C_BASE_PWMC_CH0->PWMC_CCNTR + ticks;
-    if (end == 0) // AT91C_BASE_PWMC_CH0->PWMC_CCNTR is never == 0
+    uint16_t end = AT91C_BASE_PWMC_CH1->PWMC_CCNTR + ticks;
+    if (end == 0) // AT91C_BASE_PWMC_CH1->PWMC_CCNTR is never == 0
         end++;    // so we have to end++ to avoid inivity loop
 
     for (;;) {
-        uint16_t now = AT91C_BASE_PWMC_CH0->PWMC_CCNTR;
+        uint16_t now = AT91C_BASE_PWMC_CH1->PWMC_CCNTR;
 
         if (now == end)
             return;
