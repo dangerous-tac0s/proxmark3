@@ -1804,6 +1804,126 @@ int set_fpga_mode(uint8_t mode)
     return resp.status;
 }
 
+static int CmdHWLed(const char *Cmd) {
+    CLIParserContext *ctx;
+    CLIParserInit(&ctx, "hw led",
+                  "Control LEDs on the Proxmark3 device.\n"
+                  "Brightness and PWM effects (pulse, fade) only work on PWM-capable LEDs:\n"
+                  "  PM3 Easy: LED A (Green) and LED B (Blue)\n"
+                  "  RDV4: LED A (Orange) and LED D (Red2)\n"
+                  "Blink works on all LEDs.",
+                  "hw led --led a --on\n"
+                  "hw led --led b --brightness 50\n"
+                  "hw led --led a --pulse\n"
+                  "hw led --led a,b --blink --count 10\n"
+                  "hw led --led all --off"
+                 );
+
+    void *argtable[] = {
+        arg_param_begin,
+        arg_str1(NULL, "led", "<a|b|c|d|all>", "LED(s) to control"),
+        arg_lit0(NULL, "on", "turn LED on"),
+        arg_lit0(NULL, "off", "turn LED off"),
+        arg_lit0(NULL, "toggle", "toggle LED state"),
+        arg_int0(NULL, "brightness", "<0-100>", "set PWM brightness (PWM LEDs only)"),
+        arg_lit0(NULL, "pulse", "pulse effect (PWM LEDs only)"),
+        arg_lit0(NULL, "fade", "fade effect (PWM LEDs only)"),
+        arg_lit0(NULL, "blink", "blink effect (all LEDs)"),
+        arg_int0(NULL, "speed", "<ms>", "effect cycle time in ms (default 500)"),
+        arg_int0(NULL, "count", "<n>", "effect repeat count, 0=infinite (default 5)"),
+        arg_param_end
+    };
+    CLIExecWithReturn(ctx, Cmd, argtable, false);
+
+    int led_str_len = 0;
+    char led_str[10] = {0};
+    CLIGetStrWithReturn(ctx, 1, (uint8_t *)led_str, &led_str_len);
+
+    bool do_on = arg_get_lit(ctx, 2);
+    bool do_off = arg_get_lit(ctx, 3);
+    bool do_toggle = arg_get_lit(ctx, 4);
+    int brightness = arg_get_int_def(ctx, 5, -1);
+    bool do_pulse = arg_get_lit(ctx, 6);
+    bool do_fade = arg_get_lit(ctx, 7);
+    bool do_blink = arg_get_lit(ctx, 8);
+    int speed = arg_get_int_def(ctx, 9, 500);
+    int count = arg_get_int_def(ctx, 10, 5);
+    CLIParserFree(ctx);
+
+    // Parse LED string into bitmask
+    uint8_t led_mask = 0;
+    if (strcasecmp(led_str, "all") == 0) {
+        led_mask = 0x0F;  // LED_A | LED_B | LED_C | LED_D
+    } else {
+        for (int i = 0; i < led_str_len; i++) {
+            switch (tolower((unsigned char)led_str[i])) {
+                case 'a': led_mask |= 0x01; break;
+                case 'b': led_mask |= 0x02; break;
+                case 'c': led_mask |= 0x04; break;
+                case 'd': led_mask |= 0x08; break;
+                case ',': break;
+                default:
+                    PrintAndLogEx(ERR, "Unknown LED: %c", led_str[i]);
+                    return PM3_EINVARG;
+            }
+        }
+    }
+
+    if (led_mask == 0) {
+        PrintAndLogEx(ERR, "No LED specified");
+        return PM3_EINVARG;
+    }
+
+    // Determine action
+    int action_count = do_on + do_off + do_toggle + (brightness >= 0) + do_pulse + do_fade + do_blink;
+    if (action_count != 1) {
+        PrintAndLogEx(ERR, "Select exactly one action");
+        return PM3_EINVARG;
+    }
+
+    payload_led_control_t payload = {0};
+    payload.led = led_mask;
+    payload.speed = (uint16_t)speed;
+    payload.count = (uint16_t)count;
+
+    if (do_on)          payload.action = 1;
+    if (do_off)         payload.action = 0;
+    if (do_toggle)      payload.action = 2;
+    if (brightness >= 0) {
+        payload.action = 3;
+        payload.brightness = (brightness > 100) ? 100 : (uint8_t)brightness;
+    }
+    if (do_pulse)       payload.action = 4;
+    if (do_fade)        payload.action = 5;
+    if (do_blink)       payload.action = 6;
+
+    // For blocking effects, inform user
+    if (payload.action >= 4) {
+        PrintAndLogEx(INFO, "Running effect... press " _GREEN_("pm3 button") " to stop");
+    }
+
+    clearCommandBuffer();
+    SendCommandNG(CMD_LED_CONTROL, (uint8_t *)&payload, sizeof(payload));
+
+    PacketResponseNG resp;
+    // For effects with count=0 (infinite), use long timeout with keyboard interrupt
+    if (payload.action >= 4 && payload.count == 0) {
+        while (!WaitForResponseTimeout(CMD_LED_CONTROL, &resp, 1000)) {
+            if (kbd_enter_pressed()) {
+                SendCommandNG(CMD_BREAK_LOOP, NULL, 0);
+                break;
+            }
+        }
+    } else {
+        if (WaitForResponseTimeout(CMD_LED_CONTROL, &resp, 10000) == false) {
+            PrintAndLogEx(WARNING, "timeout");
+            return PM3_ETIMEOUT;
+        }
+    }
+
+    return PM3_SUCCESS;
+}
+
 static command_t CommandTable[] = {
     {"help", CmdHelp, AlwaysAvailable, "This help"},
     {"-------------", CmdHelp, AlwaysAvailable, "----------------------- " _CYAN_("Operation") " -----------------------"},
@@ -1813,6 +1933,7 @@ static command_t CommandTable[] = {
     {"timeout", CmdTimeout, AlwaysAvailable, "Set the communication timeout on the client side"},
     {"version", CmdVersion, AlwaysAvailable, "Show version information about the client and Proxmark3"},
     {"-------------", CmdHelp, AlwaysAvailable, "----------------------- " _CYAN_("Hardware") " -----------------------"},
+    {"led", CmdHWLed, IfPm3Present, "Control LEDs (on/off/brightness/effects)"},
     {"break", CmdBreak, IfPm3Present, "Send break loop usb command"},
     {"bootloader", CmdBootloader, IfPm3Present, "Reboot into bootloader mode"},
     {"connect", CmdConnect, AlwaysAvailable, "Connect to the device via serial port"},

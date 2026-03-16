@@ -106,7 +106,8 @@ static int CmdLFTune(const char *Cmd) {
                   "Continuously measure LF antenna tuning.\n"
                   "Press button or <Enter> to interrupt.",
                   "lf tune\n"
-                  "lf tune --mix"
+                  "lf tune --mix\n"
+                  "lf tune --led"
                  );
 
     char q_str[60];
@@ -120,6 +121,7 @@ static int CmdLFTune(const char *Cmd) {
         arg_lit0(NULL, "mix", "mixed style"),
         arg_lit0(NULL, "value", "values style"),
         arg_lit0("v", "verbose", "verbose output"),
+        arg_lit0(NULL, "led", "visualize signal strength on LED"),
         arg_param_end
     };
     CLIExecWithReturn(ctx, Cmd, argtable, true);
@@ -131,6 +133,7 @@ static int CmdLFTune(const char *Cmd) {
     bool is_mix = arg_get_lit(ctx, 5);
     bool is_value = arg_get_lit(ctx, 6);
     bool verbose = arg_get_lit(ctx, 7);
+    bool use_led = arg_get_lit(ctx, 8);
     CLIParserFree(ctx);
 
     if (divisor < 19) {
@@ -171,8 +174,9 @@ static int CmdLFTune(const char *Cmd) {
     PrintAndLogEx(INFO, "Measuring LF antenna at " _YELLOW_("%.2f") " kHz", LF_DIV2FREQ(divisor));
     PrintAndLogEx(INFO, "Press " _GREEN_("pm3 button") " or " _GREEN_("<Enter>") " to exit");
 
-    uint8_t params[] = {1, 0};
+    uint8_t params[] = {1, 0, 0};
     params[1] = divisor;
+    params[2] = use_led ? 1 : 0;
     PacketResponseNG resp;
     clearCommandBuffer();
 
