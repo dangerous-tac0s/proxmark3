@@ -95,12 +95,14 @@ always @(posedge clk) begin
             3'd5: uid        <= param_shift;                      // latch UID
             3'd6: nt         <= param_shift;                      // latch NT
             3'd7: begin                                           // latch misc
-                case (spi_data[2:0])
-                    3'd0: nr         <= param_shift;
-                    3'd1: ar         <= param_shift;
-                    3'd2: check_data <= param_shift;
-                    default: ;
-                endcase
+                if (!spi_data[3]) begin  // data[3]=1 is trigger, not latch
+                    case (spi_data[2:0])
+                        3'd0: nr         <= param_shift;
+                        3'd1: ar         <= param_shift;
+                        3'd2: check_data <= param_shift;
+                        default: ;
+                    endcase
+                end
             end
             default: ;
         endcase
@@ -198,25 +200,11 @@ reg        is_encrypted;
 
 wire [4:0] bebit_idx = bit_counter[4:0] ^ 5'd24;
 
-// Select the correct input bit based on current state and bit_counter
-reg cur_input_bit;
-always @(*) begin
-    case (state)
-        S_FEED_UID_XOR_NT: cur_input_bit = uid_xor_nt[bebit_idx];
-        S_VERIFY: begin
-            if (bit_counter < 6'd32)
-                cur_input_bit = nr[bit_counter[4:0] ^ 5'd24];
-            else
-                cur_input_bit = ar[bit_counter[4:0] ^ 5'd24];
-        end
-        default: cur_input_bit = 1'b0;
-    endcase
-end
-
-wire new_even_lsb = ^(LF_POLY_ODD & lfsr_odd)
-                  ^ ^(LF_POLY_EVEN & lfsr_even)
-                  ^ (filter_out & is_encrypted)
-                  ^ cur_input_bit;
+// new_even_lsb is computed per-state inside the always block.
+// This avoids timing issues with combinational dependencies on
+// state/bit_counter that are updated by NBA in the same block.
+reg new_even_lsb_r;  // registered: computed in always block, used for LFSR step
+wire poly_parity = ^(LF_POLY_ODD & lfsr_odd) ^ ^(LF_POLY_EVEN & lfsr_even);
 
 // ============================================================================
 // Key initialization bit mapping
@@ -364,9 +352,10 @@ always @(posedge clk) begin
             // cur_input_bit is combinationally driven from uid_xor_nt.
             // ==============================================================
             S_FEED_UID_XOR_NT: begin
-                lfsr_odd  <= {lfsr_even[22:0], new_even_lsb};
+                // Compute new_even_lsb with FEED input (not encrypted)
+                new_even_lsb_r = poly_parity ^ uid_xor_nt[bebit_idx];
+                lfsr_odd  <= {lfsr_even[22:0], new_even_lsb_r};
                 lfsr_even <= lfsr_odd;
-
                 bit_counter <= bit_counter + 6'd1;
                 if (bit_counter == 6'd31) begin
                     state        <= S_VERIFY;
@@ -391,8 +380,15 @@ always @(posedge clk) begin
                 // Collect keystream bit (filter_out BEFORE this step)
                 ks_collected <= {ks_collected[30:0], filter_out};
 
+                // Compute new_even_lsb with VERIFY input (encrypted)
+                // Input bit comes from NR (bc < 32) or AR (bc >= 32)
+                if (bit_counter < 6'd32)
+                    new_even_lsb_r = poly_parity ^ filter_out ^ nr[bit_counter[4:0] ^ 5'd24];
+                else
+                    new_even_lsb_r = poly_parity ^ filter_out ^ ar[bit_counter[4:0] ^ 5'd24];
+
                 // Advance LFSR
-                lfsr_odd  <= {lfsr_even[22:0], new_even_lsb};
+                lfsr_odd  <= {lfsr_even[22:0], new_even_lsb_r};
                 lfsr_even <= lfsr_odd;
 
                 bit_counter <= bit_counter + 6'd1;

@@ -118,36 +118,40 @@ module tb_crypto1_engine;
         end
     endtask
 
-    // Load a 32-bit parameter via three 12-bit SPI writes.
-    // Engine register shift: reg <= {reg[19:0], spi_data}
-    // After 3 writes of d1, d2, d3:
-    //   reg = {d1[7:0], d2[11:0], d3[11:0]} = 32 bits
-    // So: d1 = {4'b0, val[31:24]}, d2 = val[23:12], d3 = val[11:0]
-    task spi_load_param;
-        input [2:0]  sel;
-        input [31:0] value;
+    // Shift 12 bits into the engine's param_shift register (param_sel=4)
+    task spi_shift12;
+        input [11:0] value;
         begin
             @(posedge clk);
-            spi_param_sel <= sel;
-            spi_data      <= {4'b0, value[31:24]};
+            spi_param_sel <= 3'd4;
+            spi_data      <= value;
             spi_load      <= 1'b1;
             @(posedge clk);
             spi_load      <= 1'b0;
-
             @(posedge clk);
-            spi_param_sel <= sel;
-            spi_data      <= value[23:12];
+        end
+    endtask
+
+    // Load a 32-bit parameter: 3 shifts into param_shift, then latch.
+    // After 3 writes of d1, d2, d3 to param_sel=4:
+    //   param_shift = {d1[7:0], d2[11:0], d3[11:0]} = 32 bits
+    // Then latch_sel latches param_shift into the target register.
+    task spi_load_param;
+        input [2:0]  latch_sel;   // 5=UID, 6=NT, 7=NR/AR/check (with data sub-select)
+        input [11:0] latch_data;  // sub-select for param_sel=7
+        input [31:0] value;
+        begin
+            spi_shift12({4'b0, value[31:24]});
+            spi_shift12(value[23:12]);
+            spi_shift12(value[11:0]);
+
+            // Latch
+            @(posedge clk);
+            spi_param_sel <= latch_sel;
+            spi_data      <= latch_data;
             spi_load      <= 1'b1;
             @(posedge clk);
             spi_load      <= 1'b0;
-
-            @(posedge clk);
-            spi_param_sel <= sel;
-            spi_data      <= value[11:0];
-            spi_load      <= 1'b1;
-            @(posedge clk);
-            spi_load      <= 1'b0;
-
             @(posedge clk);
         end
     endtask
@@ -155,8 +159,8 @@ module tb_crypto1_engine;
     task spi_trigger;
         begin
             @(posedge clk);
-            spi_param_sel <= 3'd5;
-            spi_data      <= 12'h001;
+            spi_param_sel <= 3'd7;
+            spi_data      <= 12'h008;  // data[3]=1 triggers
             spi_load      <= 1'b1;
             @(posedge clk);
             spi_load      <= 1'b0;
@@ -266,11 +270,11 @@ module tb_crypto1_engine;
         // ================================================================
         $display("");
         $display("--- Loading parameters via SPI ---");
-        spi_load_param(3'd0, UID);
-        spi_load_param(3'd1, NT);
-        spi_load_param(3'd2, NR);
-        spi_load_param(3'd3, AR);
-        spi_load_param(3'd4, CHECK_DATA);
+        spi_load_param(3'd5, 12'h000, UID);         // latch UID
+        spi_load_param(3'd6, 12'h000, NT);          // latch NT
+        spi_load_param(3'd7, 12'h000, NR);          // latch NR  (data[2:0]=0)
+        spi_load_param(3'd7, 12'h001, AR);          // latch AR  (data[2:0]=1)
+        spi_load_param(3'd7, 12'h002, CHECK_DATA);  // latch check (data[2:0]=2)
         wait_clks(5);
 
         check("UID loaded correctly", dut.uid == UID);
