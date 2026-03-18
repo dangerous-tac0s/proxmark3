@@ -807,6 +807,19 @@ typedef struct {
 #define CMD_HF_MIFARE_STATIC_NESTED 0x0615
 #define CMD_HF_MIFARE_STATIC_ENC 0x0616
 #define CMD_HF_MIFARE_ACQ_STATIC_ENCRYPTED_NONCES 0x0617
+#define CMD_HF_CRYPTO1_ACCEL                    0x0618
+
+typedef struct {
+    uint32_t uid;
+    uint32_t nt;
+    uint32_t nr;
+    uint32_t ar;
+    uint32_t check;
+    uint8_t  check_len;
+    uint8_t  pad[3];
+    uint64_t key_start;
+    uint64_t key_end;
+} PACKED crypto1_accel_params_t;
 
 #define CMD_HF_MIFARE_READBL 0x0620
 #define CMD_HF_MIFARE_READBL_EX 0x0628
