@@ -42,7 +42,7 @@ SRC_ISO14443a = iso14443a.c mifareutil.c mifarecmd.c epa.c mifaresim.c sam_commo
 #UNUSED: mifaresniff.c
 SRC_ISO14443b = iso14443b.c
 SRC_FELICA = felica.c
-SRC_CRAPTO1 = crypto1.c des.c desfire_crypto.c mifaredesfire.c aes.c platform_util.c
+SRC_CRAPTO1 = crypto1.c des.c desfire_crypto.c mifaredesfire.c aes.c platform_util.c crypto1_accel.c
 SRC_CRC = crc.c crc16.c crc32.c
 SRC_ICLASS = iclass.c optimized_cipherutils.c optimized_ikeys.c optimized_elite.c optimized_cipher.c sam_picopass.c
 SRC_SEOS = seos.c sha1.c sha256.c

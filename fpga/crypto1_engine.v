@@ -54,20 +54,27 @@ localparam [2:0] S_IDLE            = 3'd0,
 // ============================================================================
 // SPI parameter registers
 //
-// The ARM loads 32-bit values through 12-bit SPI writes. Each param_sel
-// targets a specific register using a shift-in scheme: writing to a
-// param_sel shifts that register left by 12 and ORs in the new data.
-// Three writes of 12 bits = 36 bits capacity (top 4 bits ignored for 32-bit
-// values). The ARM writes MSB-first, 3 times per 32-bit parameter.
+// The top-level passes spi_param_sel = shift_reg[14:12], which for SPI
+// commands 4-7 (shift_reg[15:14] == 2'b01) yields param_sel values 4-7:
 //
-// param_sel 0: UID
-// param_sel 1: NT
-// param_sel 2: NR
-// param_sel 3: AR
-// param_sel 4: check_data (expected keystream for verification)
-// param_sel 5: config (bit 0 = start trigger)
-// param_sel 6-7: reserved
+//   FPGA_CMD_CRYPTO1_PARAMS     (4<<12) -> param_sel = 4  shift data in
+//   FPGA_CMD_CRYPTO1_LATCH_UID  (5<<12) -> param_sel = 5  latch -> uid
+//   FPGA_CMD_CRYPTO1_LATCH_NT   (6<<12) -> param_sel = 6  latch -> nt
+//   FPGA_CMD_CRYPTO1_LATCH_MISC (7<<12) -> param_sel = 7  latch -> nr/ar/check or trigger
+//
+// Protocol for loading a 32-bit parameter:
+//   1. Send 3x FPGA_CMD_CRYPTO1_PARAMS with 12-bit data chunks (MSB first)
+//      to shift them into param_shift accumulator.
+//   2. Send the appropriate latch command to copy param_shift to the target:
+//      - LATCH_UID:  param_shift -> uid
+//      - LATCH_NT:   param_shift -> nt
+//      - LATCH_MISC: param_shift -> register selected by spi_data[2:0]:
+//                     0 = nr, 1 = ar, 2 = check_data
+//
+// To trigger the engine:
+//   Send FPGA_CMD_CRYPTO1_LATCH_MISC with spi_data[3] = 1
 // ============================================================================
+reg [31:0] param_shift;
 reg [31:0] uid;
 reg [31:0] nt;
 reg [31:0] nr;
@@ -76,6 +83,7 @@ reg [31:0] check_data;
 
 always @(posedge clk) begin
     if (rst) begin
+        param_shift <= 32'd0;
         uid        <= 32'd0;
         nt         <= 32'd0;
         nr         <= 32'd0;
@@ -83,24 +91,30 @@ always @(posedge clk) begin
         check_data <= 32'd0;
     end else if (spi_load) begin
         case (spi_param_sel)
-            3'd0: uid        <= {uid[19:0], spi_data};
-            3'd1: nt         <= {nt[19:0], spi_data};
-            3'd2: nr         <= {nr[19:0], spi_data};
-            3'd3: ar         <= {ar[19:0], spi_data};
-            3'd4: check_data <= {check_data[19:0], spi_data};
+            3'd4: param_shift <= {param_shift[19:0], spi_data};  // shift in
+            3'd5: uid        <= param_shift;                      // latch UID
+            3'd6: nt         <= param_shift;                      // latch NT
+            3'd7: begin                                           // latch misc
+                case (spi_data[2:0])
+                    3'd0: nr         <= param_shift;
+                    3'd1: ar         <= param_shift;
+                    3'd2: check_data <= param_shift;
+                    default: ;
+                endcase
+            end
             default: ;
         endcase
     end
 end
 
 // ============================================================================
-// Start trigger: latch on SPI write to param_sel 5 with data bit 0 set
+// Start trigger: on LATCH_MISC (param_sel=7) with spi_data[3] set
 // ============================================================================
 reg start_trigger;
 always @(posedge clk) begin
     if (rst)
         start_trigger <= 1'b0;
-    else if (spi_load && spi_param_sel == 3'd5 && spi_data[0])
+    else if (spi_load && spi_param_sel == 3'd7 && spi_data[3])
         start_trigger <= 1'b1;
     else if (state != S_IDLE)
         start_trigger <= 1'b0;
