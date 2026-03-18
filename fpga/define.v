@@ -111,6 +111,7 @@
 `define FPGA_MAJOR_MODE_HF_SNIFF                    3
 `define FPGA_MAJOR_MODE_HF_ISO18092                 4
 `define FPGA_MAJOR_MODE_HF_GET_TRACE                5
+`define FPGA_MAJOR_MODE_HF_CRYPTO1                  6
 `define FPGA_MAJOR_MODE_OFF                         7
 
 // Options for LF_READER
