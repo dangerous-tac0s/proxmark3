@@ -116,6 +116,7 @@
 #define FPGA_MAJOR_MODE_HF_SNIFF                    (3<<6)
 #define FPGA_MAJOR_MODE_HF_ISO18092                 (4<<6)
 #define FPGA_MAJOR_MODE_HF_GET_TRACE                (5<<6)
+#define FPGA_MAJOR_MODE_HF_CRYPTO1                  (6<<6)
 #define FPGA_MAJOR_MODE_OFF                         (7<<6)
 
 // Options for LF_READER
@@ -160,6 +161,12 @@
 #define FPGA_HF_ISO18092_FLAG_NOMOD                 ( 1 ) // 0001 disable modulation module
 #define FPGA_HF_ISO18092_FLAG_424K                  ( 2 ) // 0010 should enable 414k mode (untested). No autodetect
 #define FPGA_HF_ISO18092_FLAG_READER                ( 4 ) // 0100 enables antenna power, to act as a reader instead of tag
+
+// CRYPTO-1 acceleration SPI commands
+#define FPGA_CMD_CRYPTO1_PARAMS                     (4<<12)
+#define FPGA_CMD_CRYPTO1_LATCH_UID                  (5<<12)
+#define FPGA_CMD_CRYPTO1_LATCH_NT                   (6<<12)
+#define FPGA_CMD_CRYPTO1_LATCH_MISC                 (7<<12)
 
 void FpgaSendCommand(uint16_t cmd, uint16_t v);
 void FpgaWriteConfWord(uint16_t v);
