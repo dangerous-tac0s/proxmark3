@@ -11010,6 +11010,107 @@ static int CmdHF14AMfKeyGen(const char *Cmd) {
     return PM3_SUCCESS;
 }
 
+static int CmdHF14AMfAccel(const char *Cmd) {
+    CLIParserContext *ctx;
+    CLIParserInit(&ctx, "hf mf accel",
+                  "FPGA-accelerated CRYPTO-1 key search.\n"
+                  "Provide UID and authentication trace data to brute-force the key on-device.\n"
+                  "The FPGA engine tests ~500K keys/sec (vs ~15K/sec in software).",
+                  "hf mf accel --uid 01020304 --nt 11223344 --nr 55667788 --ar 99AABBCC --chk DDEEFF00\n"
+                  "hf mf accel --uid 01020304 --nt 11223344 --nr 55667788 --ar 99AABBCC --chk DDEEFF00 --start 0 --end FFFFFFFFFFFF");
+
+    void *argtable[] = {
+        arg_param_begin,
+        arg_str1(NULL, "uid", "<hex>",  "Card UID (4 bytes)"),
+        arg_str1(NULL, "nt",  "<hex>",  "Tag nonce (4 bytes)"),
+        arg_str1(NULL, "nr",  "<hex>",  "Reader nonce (4 bytes)"),
+        arg_str1(NULL, "ar",  "<hex>",  "Reader answer (4 bytes)"),
+        arg_str1(NULL, "chk", "<hex>",  "Encrypted check bytes (1-4 bytes)"),
+        arg_str0(NULL, "start", "<hex>", "Key range start (6 bytes, default 000000000000)"),
+        arg_str0(NULL, "end",   "<hex>", "Key range end (6 bytes, default FFFFFFFFFFFF)"),
+        arg_param_end
+    };
+    CLIExecWithReturn(ctx, Cmd, argtable, false);
+
+    int uid_len = 0, nt_len = 0, nr_len = 0, ar_len = 0, chk_len = 0;
+    uint8_t uid_raw[4] = {0}, nt_raw[4] = {0}, nr_raw[4] = {0}, ar_raw[4] = {0}, chk_raw[4] = {0};
+
+    CLIGetHexWithReturn(ctx, 1, uid_raw, &uid_len);
+    CLIGetHexWithReturn(ctx, 2, nt_raw, &nt_len);
+    CLIGetHexWithReturn(ctx, 3, nr_raw, &nr_len);
+    CLIGetHexWithReturn(ctx, 4, ar_raw, &ar_len);
+    CLIGetHexWithReturn(ctx, 5, chk_raw, &chk_len);
+
+    int start_len = 0, end_len = 0;
+    uint8_t start_raw[6] = {0}, end_raw[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
+    CLIGetHexWithReturn(ctx, 6, start_raw, &start_len);
+    CLIGetHexWithReturn(ctx, 7, end_raw, &end_len);
+    CLIParserFree(ctx);
+
+    if (uid_len != 4) {
+        PrintAndLogEx(WARNING, "UID must be 4 bytes, got %d", uid_len);
+        return PM3_EINVARG;
+    }
+    if (nt_len != 4 || nr_len != 4 || ar_len != 4) {
+        PrintAndLogEx(WARNING, "nt, nr, ar must each be 4 bytes");
+        return PM3_EINVARG;
+    }
+    if (chk_len < 1 || chk_len > 4) {
+        PrintAndLogEx(WARNING, "check bytes must be 1-4 bytes, got %d", chk_len);
+        return PM3_EINVARG;
+    }
+    if (start_len != 0 && start_len != 6) {
+        PrintAndLogEx(WARNING, "start key must be 6 bytes, got %d", start_len);
+        return PM3_EINVARG;
+    }
+    if (end_len != 0 && end_len != 6) {
+        PrintAndLogEx(WARNING, "end key must be 6 bytes, got %d", end_len);
+        return PM3_EINVARG;
+    }
+
+    crypto1_accel_params_t params = {
+        .uid       = bytes_to_num(uid_raw, 4),
+        .nt        = bytes_to_num(nt_raw, 4),
+        .nr        = bytes_to_num(nr_raw, 4),
+        .ar        = bytes_to_num(ar_raw, 4),
+        .check     = bytes_to_num(chk_raw, chk_len),
+        .check_len = chk_len,
+        .key_start = bytes_to_num(start_raw, 6),
+        .key_end   = bytes_to_num(end_raw, 6),
+    };
+
+    PrintAndLogEx(INFO, "FPGA CRYPTO-1 accelerated key search");
+    PrintAndLogEx(INFO, "  UID: %08X  NT: %08X", params.uid, params.nt);
+    PrintAndLogEx(INFO, "  NR:  %08X  AR: %08X", params.nr, params.ar);
+    PrintAndLogEx(INFO, "  Key range: %012" PRIX64 " - %012" PRIX64, params.key_start, params.key_end);
+
+    clearCommandBuffer();
+    SendCommandNG(CMD_HF_CRYPTO1_ACCEL, (uint8_t *)&params, sizeof(params));
+
+    PacketResponseNG resp;
+    PrintAndLogEx(INFO, "Searching... (press pm3 button to abort)");
+
+    // Long timeout — full key space at 500K keys/sec takes ~9.5 minutes
+    if (WaitForResponseTimeout(CMD_HF_CRYPTO1_ACCEL, &resp, 600000) == false) {
+        PrintAndLogEx(WARNING, "Command timed out");
+        return PM3_ETIMEOUT;
+    }
+
+    if (resp.status == PM3_SUCCESS) {
+        uint64_t found_key = 0;
+        memcpy(&found_key, resp.data.asBytes, sizeof(found_key));
+        PrintAndLogEx(SUCCESS, "Found key: " _GREEN_("%012" PRIX64), found_key);
+        return PM3_SUCCESS;
+    } else if (resp.status == PM3_EOPABORTED) {
+        PrintAndLogEx(WARNING, "Aborted by button press");
+        return PM3_EOPABORTED;
+    } else {
+        PrintAndLogEx(FAILED, "No key found in specified range");
+        return PM3_ESOFT;
+    }
+}
+
 static command_t CommandTable[] = {
     {"help",        CmdHelp,                AlwaysAvailable, "This help"},
     {"list",        CmdHF14AMfList,         AlwaysAvailable, "List MIFARE history"},
@@ -11021,6 +11122,7 @@ static command_t CommandTable[] = {
     {"brute",       CmdHF14AMfSmartBrute,   IfPm3Iso14443a,  "Smart bruteforce to exploit weak key generators"},
     {"autopwn",     CmdHF14AMfAutoPWN,      IfPm3Iso14443a,  "Automatic key recovery tool for MIFARE Classic"},
 //    {"keybrute",    CmdHF14AMfKeyBrute,     IfPm3Iso14443a,  "J_Run's 2nd phase of multiple sector nested authentication key recovery"},
+    {"accel",       CmdHF14AMfAccel,        IfPm3Iso14443a,  "FPGA-accelerated CRYPTO-1 key search"},
     {"nack",        CmdHf14AMfNack,         IfPm3Iso14443a,  "Test for MIFARE NACK bug"},
     {"chk",         CmdHF14AMfChk,          IfPm3Iso14443a,  "Check keys"},
     {"fchk",        CmdHF14AMfChk_fast,     IfPm3Iso14443a,  "Check keys fast, targets all keys on card"},

@@ -54,6 +54,7 @@
 #include "lfsampling.h"
 #include "lfzx.h"
 #include "mifarecmd.h"
+#include "crypto1_accel.h"
 #include "mifaredesfire.h"
 #include "mifaresim.h"
 #include "emvsim.h"
@@ -2008,6 +2009,13 @@ static void PacketReceived(PacketCommandNG *packet) {
         }
         case CMD_HF_MIFARE_ACQ_NONCES: {
             MifareAcquireNonces(packet->oldarg[0], packet->oldarg[2]);
+            break;
+        }
+        case CMD_HF_CRYPTO1_ACCEL: {
+            crypto1_accel_params_t *params = (crypto1_accel_params_t *)packet->data.asBytes;
+            uint64_t found_key = 0;
+            int result = crypto1_accel_search(params, &found_key);
+            reply_ng(CMD_HF_CRYPTO1_ACCEL, result, (uint8_t *)&found_key, sizeof(found_key));
             break;
         }
         case CMD_HF_MIFARE_NESTED: {
