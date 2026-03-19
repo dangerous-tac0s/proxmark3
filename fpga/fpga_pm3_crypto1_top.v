@@ -50,6 +50,12 @@ module fpga_top(
 // In all modes, let the ADC's outputs be enabled.
 assign adc_noe = 1'b0;
 
+// P39 (spck) is a GCLKIOB pad on the XC2S30 — must use IBUFG so the mapper
+// can place the signal on a global clock buffer.  Without this explicit
+// instantiation ISE may infer a plain IBUF, which is illegal on GCLK pads.
+wire spck_bufg;
+IBUFG spck_ibufg(.I(spck), .O(spck_bufg));
+
 //-----------------------------------------------------------------------------
 // The SPI receiver. This sets up the configuration word, which the rest of
 // the logic looks at to determine how to connect the A/D and the coil
@@ -59,7 +65,7 @@ assign adc_noe = 1'b0;
 
 // Receive 16bits of data from ARM here.
 reg [15:0] shift_reg;
-always @(posedge spck) if (~ncs) shift_reg <= {shift_reg[14:0], mosi};
+always @(posedge spck_bufg) if (~ncs) shift_reg <= {shift_reg[14:0], mosi};
 
 reg trace_enable;
 
