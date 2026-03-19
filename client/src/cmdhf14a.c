@@ -48,6 +48,8 @@
 #include "mbedtls/cmac.h"
 #include "jansson.h"             // JSON parsing
 #include "pla.h"                 // ECP parsing
+#include "cmdhffingerprint.h"    // RF fingerprint
+#include <math.h>                // fabsf
 
 static bool g_apdu_in_framing_enable = true;
 bool Get_apdu_in_framing(void) {
@@ -4493,6 +4495,183 @@ int CmdHF14AAIDSim(const char *Cmd) {
 }
 
 
+static int CmdHF14AFingerprint(const char *Cmd) {
+    CLIParserContext *ctx;
+    CLIParserInit(&ctx, "hf 14a fingerprint",
+                  "Capture RF envelope fingerprint of an ISO 14443-A tag for clone detection.\n"
+                  "Use --enroll to save a reference profile, --verify to compare against it.",
+                  "hf 14a fingerprint                      -> display envelope info\n"
+                  "hf 14a fingerprint --enroll -n mycard    -> enroll a reference profile\n"
+                  "hf 14a fingerprint --verify -n mycard    -> verify tag against profile\n"
+                  "hf 14a fingerprint --enroll -n mycard -c 128 -> enroll with 128 captures\n"
+                  "hf 14a fingerprint --raw -n mycard       -> enroll and keep raw samples"
+                 );
+
+    void *argtable[] = {
+        arg_param_begin,
+        arg_lit0(NULL, "enroll", "Enroll a new reference fingerprint"),
+        arg_lit0(NULL, "verify", "Verify tag against a saved fingerprint"),
+        arg_str0("n", "name", "<str>", "Profile name for enroll/verify"),
+        arg_int0("c", "captures", "<dec>", "Number of captures (default 64)"),
+        arg_lit0(NULL, "raw", "Save raw samples (with --enroll)"),
+        arg_param_end
+    };
+    CLIExecWithReturn(ctx, Cmd, argtable, true);
+
+    bool enroll = arg_get_lit(ctx, 1);
+    bool verify = arg_get_lit(ctx, 2);
+
+    int nlen = 0;
+    char name[64] = {0};
+    CLIParamStrToBuf(arg_get_str(ctx, 3), (uint8_t *)name, sizeof(name) - 1, &nlen);
+
+    int captures = arg_get_int_def(ctx, 4, 64);
+    bool raw = arg_get_lit(ctx, 5);
+
+    CLIParserFree(ctx);
+
+    if (enroll && verify) {
+        PrintAndLogEx(ERR, "Cannot use --enroll and --verify together");
+        return PM3_EINVARG;
+    }
+
+    if ((enroll || verify) && nlen == 0) {
+        PrintAndLogEx(ERR, "Must specify -n <name> with --enroll or --verify");
+        return PM3_EINVARG;
+    }
+
+    if (captures < 1 || captures > 1024) {
+        PrintAndLogEx(ERR, "Captures must be between 1 and 1024");
+        return PM3_EINVARG;
+    }
+
+    uint16_t samples_per = 1536;
+
+    // send command to firmware
+    hf_fingerprint_req_t payload;
+    payload.protocol = 1;  // ISO14443A
+    payload.captures = (uint16_t)captures;
+    payload.samples_per = samples_per;
+
+    clearCommandBuffer();
+    SendCommandNG(CMD_HF_FINGERPRINT, (uint8_t *)&payload, sizeof(payload));
+
+    PrintAndLogEx(INFO, "Capturing %d envelopes... (place tag on antenna)", captures);
+
+    PacketResponseNG resp;
+    if (WaitForResponseTimeout(CMD_HF_FINGERPRINT, &resp, 30000) == false) {
+        PrintAndLogEx(ERR, "timeout waiting for device");
+        return PM3_ETIMEOUT;
+    }
+
+    if (resp.status != PM3_SUCCESS) {
+        PrintAndLogEx(ERR, "device returned error %d", resp.status);
+        return resp.status;
+    }
+
+    hf_fingerprint_resp_t *meta = (hf_fingerprint_resp_t *)resp.data.asBytes;
+
+    PrintAndLogEx(INFO, "Protocol........ ISO 14443-A");
+    PrintAndLogEx(INFO, "Captures........ %u", meta->captures);
+    PrintAndLogEx(INFO, "Samples/capture. %u", meta->samples_per);
+    PrintAndLogEx(INFO, "Baseline........ %u", meta->baseline);
+
+    // download raw samples from BigBuf
+    uint32_t total_bytes = (uint32_t)meta->captures * meta->samples_per;
+    uint8_t *buf = calloc(total_bytes, sizeof(uint8_t));
+    if (buf == NULL) {
+        PrintAndLogEx(ERR, "failed to allocate %u bytes", total_bytes);
+        return PM3_EMALLOC;
+    }
+
+    PrintAndLogEx(INFO, "Downloading %u bytes from device...", total_bytes);
+
+    PacketResponseNG dl_resp;
+    if (GetFromDevice(BIG_BUF, buf, total_bytes, 0, NULL, 0, &dl_resp, 15000, true) == false) {
+        PrintAndLogEx(ERR, "failed to download samples from device");
+        free(buf);
+        return PM3_ESOFT;
+    }
+
+    // average captures into a fingerprint profile
+    fingerprint_profile_t fp;
+    memset(&fp, 0, sizeof(fp));
+    fp.version = 1;
+    fp.protocol = meta->protocol;
+    fp.captures = meta->captures;
+    fp.baseline = meta->baseline;
+
+    int res = fingerprint_average_captures(buf, meta->captures, meta->samples_per,
+                                           meta->baseline, &fp.atqa);
+
+    if (raw && enroll) {
+        // save raw samples before freeing
+        char rawfname[256];
+        snprintf(rawfname, sizeof(rawfname), "hf_fingerprint_%s_raw.bin", name);
+        saveFile(rawfname, ".bin", buf, total_bytes);
+    }
+
+    free(buf);
+
+    if (res != PM3_SUCCESS) {
+        PrintAndLogEx(ERR, "failed to process captures");
+        return res;
+    }
+
+    // find peak modulation depth
+    float peak_mod = 0.0f;
+    for (uint16_t i = 0; i < fp.atqa.length; i++) {
+        float a = fabsf(fp.atqa.waveform[i]);
+        if (a > peak_mod) {
+            peak_mod = a;
+        }
+    }
+
+    PrintAndLogEx(INFO, "Peak modulation. %.3f (normalized)", peak_mod);
+
+    if (enroll) {
+        // set creation timestamp
+        time_t now = time(NULL);
+        struct tm *t = localtime(&now);
+        strftime(fp.created, sizeof(fp.created), "%Y-%m-%d %H:%M:%S", t);
+
+        res = fingerprint_save(name, &fp);
+        fingerprint_free(&fp);
+        return res;
+    }
+
+    if (verify) {
+        fingerprint_profile_t ref;
+        res = fingerprint_load(name, &ref);
+        if (res != PM3_SUCCESS) {
+            fingerprint_free(&fp);
+            return res;
+        }
+
+        float score = fingerprint_correlate(&ref.atqa, &fp.atqa);
+        PrintAndLogEx(INFO, "");
+        PrintAndLogEx(INFO, "Correlation score: " _YELLOW_("%.4f"), score);
+
+        if (score >= 0.95f) {
+            PrintAndLogEx(SUCCESS, "Result: " _GREEN_("PASS") " -- tag matches enrolled profile");
+        } else {
+            PrintAndLogEx(WARNING, "Result: " _RED_("FAIL") " -- tag does NOT match enrolled profile (threshold 0.95)");
+        }
+
+        fingerprint_free(&ref);
+        fingerprint_free(&fp);
+        return PM3_SUCCESS;
+    }
+
+    // display mode -- just show envelope info
+    PrintAndLogEx(INFO, "");
+    PrintAndLogEx(INFO, "No --enroll or --verify specified, showing capture summary only.");
+    PrintAndLogEx(HINT, "Hint: use " _YELLOW_("`hf 14a fingerprint --enroll -n <name>`") " to save a reference profile");
+
+    fingerprint_free(&fp);
+    return PM3_SUCCESS;
+}
+
 static command_t CommandTable[] = {
     {"-----------", CmdHelp,              AlwaysAvailable, "----------------------- " _CYAN_("General") " -----------------------"},
     {"help",        CmdHelp,              AlwaysAvailable, "This help"},
@@ -4507,6 +4686,7 @@ static command_t CommandTable[] = {
     {"sniff",       CmdHF14ASniff,        IfPm3Iso14443a,  "sniff ISO 14443-a traffic"},
     {"raw",         CmdHF14ACmdRaw,       IfPm3Iso14443a,  "Send raw hex data to tag"},
     {"reader",      CmdHF14AReader,       IfPm3Iso14443a,  "Act like an ISO14443-a reader"},
+    {"fingerprint", CmdHF14AFingerprint,  IfPm3Iso14443a,  "Capture RF fingerprint for clone detection"},
     {"-----------", CmdHelp,              IfPm3Iso14443a,  "------------------------- " _CYAN_("APDU") " -------------------------"},
     {"apdu",        CmdHF14AAPDU,         IfPm3Iso14443a,  "Send ISO 14443-4 APDU to tag"},
     {"apdufind",    CmdHf14AFindapdu,     IfPm3Iso14443a,  "Enumerate APDUs - CLA/INS/P1P2"},
