@@ -69,6 +69,7 @@
 #include "sam_seos.h"
 #include "sam_mfc.h"
 #include "cmac_calc.h"
+#include "hf_fingerprint.h"
 
 #ifdef WITH_LCD
 #include "LCD_disabled.h"
@@ -2279,6 +2280,11 @@ static void PacketReceived(PacketCommandNG *packet) {
             struct p *payload = (struct p *) packet->data.asBytes;
 
             MifareHasStaticEncryptedNonce(payload->block_no, payload->key_type, payload->key, payload->block_no_nested, payload->key_type_nested, payload->key_nested, payload->nr_nonces, payload->resets & 1, (payload->resets >> 1) & 1, payload->addread, payload->addauth, payload->incblk2, payload->corruptnrar, payload->corruptnrarparity);
+            break;
+        }
+        case CMD_HF_FINGERPRINT: {
+            hf_fingerprint_req_t *req = (hf_fingerprint_req_t *)packet->data.asBytes;
+            HfFingerprint14a(req);
             break;
         }
 #endif
