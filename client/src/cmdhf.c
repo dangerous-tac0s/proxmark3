@@ -54,6 +54,7 @@
 #include "cmdhfvas.h"       // Value added services
 #include "cmdhfwaveshare.h" // Waveshare
 #include "cmdhfxerox.h"     // Xerox
+#include "cmdhffingerprint.h" // RF Fingerprint
 #include "cmdtrace.h"       // trace list
 #include "ui.h"
 #include "proxgui.h"
@@ -607,6 +608,7 @@ static command_t CommandTable[] = {
     {"waveshare",   CmdHFWaveshare,   AlwaysAvailable, "{ Waveshare NFC ePaper...             }"},
 #endif
     {"xerox",       CmdHFXerox,       AlwaysAvailable, "{ Fuji/Xerox cartridge RFIDs...       }"},
+    {"fingerprint", CmdHFFingerprint, AlwaysAvailable, "{ RF Fingerprint clone detection...   }"},
     {"-----------", CmdHelp,          AlwaysAvailable, "--------------------- " _CYAN_("General") " ---------------------"},
     {"help",        CmdHelp,          AlwaysAvailable, "This help"},
     {"list",        CmdHFList,        AlwaysAvailable, "List protocol data in trace buffer"},
