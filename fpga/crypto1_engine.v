@@ -110,6 +110,11 @@ always @(posedge clk) begin
 end
 
 // ============================================================================
+// State machine register (declared early for forward reference)
+// ============================================================================
+reg [2:0]  state;
+
+// ============================================================================
 // Start trigger: on LATCH_MISC (param_sel=7) with spi_data[3] set
 // ============================================================================
 reg start_trigger;
@@ -192,7 +197,6 @@ wire filter_out = filter(lfsr_odd);
 
 // Combinational input bit mux — avoids one-cycle pipeline delay that would
 // occur if input_bit were a register assigned in the same always block.
-reg [2:0]  state;
 reg [5:0]  bit_counter;
 reg [47:0] key_shift;
 reg [31:0] uid_xor_nt;
