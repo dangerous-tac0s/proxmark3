@@ -888,6 +888,8 @@ typedef struct {
 
 #define CMD_HF_SEOS_SIMULATE 0x0903
 
+#define CMD_HF_FINGERPRINT                          0x0910
+
 #define CMD_UNKNOWN 0xFFFF
 
 // Mifare simulation flags
@@ -1124,5 +1126,18 @@ typedef struct {
    is given as third parameter */
 
 #define START_FLASH_MAGIC 0x54494f44 // 'DOIT'
+
+typedef struct {
+    uint8_t  protocol;       // 1 = ISO14443A
+    uint16_t captures;       // repetitions (default 64)
+    uint16_t samples_per;    // samples per capture window (default 1536)
+} PACKED hf_fingerprint_req_t;
+
+typedef struct {
+    uint8_t  protocol;
+    uint16_t captures;
+    uint16_t samples_per;
+    uint16_t baseline;       // unmodulated field amplitude
+} PACKED hf_fingerprint_resp_t;
 
 #endif
